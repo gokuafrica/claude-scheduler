@@ -13,25 +13,54 @@ Schedule Claude Code CLI to run prompts automatically using Windows Task Schedul
 - Lists all jobs with status, schedule, and last run info
 - Installs a Claude Code skill so you can manage jobs in natural language
 
+## Quick Start (easiest way)
+
+If you already have [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed, just point it at this repo:
+
+```
+Clone https://github.com/gokuafrica/claude-scheduler and install it
+```
+
+Claude Code will clone the repo, read this README, run the installer, and set everything up for you. That's it — you can then manage scheduled jobs in plain English:
+
+- *"Schedule a task to summarize HN every morning at 9am"*
+- *"What jobs do I have scheduled?"*
+- *"Pause my daily scan"*
+
 ## Prerequisites
 
 - Windows 10/11
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
 - Claude Code authenticated (run `claude` once interactively)
-- `skipDangerousModePermissionPrompt` set to `true` in `~/.claude/settings.json` (run `claude --dangerously-skip-permissions` once to accept)
 - PowerShell 5.1+ (included with Windows 10/11)
+- One-time setup: run `claude --dangerously-skip-permissions` interactively to accept the prompt (required for unattended execution)
 
-## Install
+## Manual Install
 
 ```powershell
-git clone <this-repo-url> claude-scheduler
+git clone https://github.com/gokuafrica/claude-scheduler.git
 cd claude-scheduler
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-This copies the scheduler scripts to `~/.claude/scheduler/` and installs the Claude Code skill to `~/.claude/skills/claude-scheduler/`. Your existing jobs and logs are preserved if you reinstall.
+This copies the scheduler scripts to `~/.claude/scheduler/` and installs the Claude Code skill to `~/.claude/skills/claude-scheduler/`. Existing jobs and logs are preserved on reinstall.
 
 ## Usage
+
+### From Claude Code (recommended)
+
+Once installed, just talk to Claude:
+
+| You say | What happens |
+|---------|-------------|
+| "Schedule a task to summarize HN daily at 9am" | Creates a scheduled job |
+| "What jobs do I have?" | Lists all jobs with status |
+| "Run my summary job now" | Executes immediately |
+| "Pause the daily scan" | Disables without deleting |
+| "Show me the logs for my-job" | Displays latest run output |
+| "Delete the test job" | Removes permanently |
+
+The `/claude-scheduler` skill translates your intent into the right commands.
 
 ### From PowerShell
 
@@ -41,8 +70,8 @@ This copies the scheduler scripts to `~/.claude/scheduler/` and installs the Cla
   -Name "daily-summary" `
   -Prompt "Fetch https://news.ycombinator.com and summarize the top stories to ~/reports/hn.md" `
   -Schedule "daily 09:00" `
-  -Model "haiku" `
-  -MaxBudget 0.50
+  -Model "sonnet" `
+  -Effort "high"
 
 # List all jobs
 & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" list
@@ -75,17 +104,6 @@ Set-Alias -Name cs -Value "$env:USERPROFILE\.claude\scheduler\claude-scheduler.p
 # Then: cs list, cs run -Name "daily-summary", etc.
 ```
 
-### From Claude Code (natural language)
-
-Once installed, say things like:
-- "Schedule a task to summarize HN every morning at 9am"
-- "What jobs do I have scheduled?"
-- "Pause my daily summary job"
-- "Show me the logs for daily-summary"
-- "Run my summary job now"
-
-The `/claude-scheduler` skill translates your intent into the right CLI command.
-
 ## Schedule Formats
 
 | Format | Example | Meaning |
@@ -106,16 +124,30 @@ The `/claude-scheduler` skill translates your intent into the right CLI command.
 | `-Name` | (required) | Job name (letters, numbers, hyphens, underscores) |
 | `-Prompt` | (required) | The prompt Claude will execute |
 | `-Schedule` | (required) | When to run (see formats above) |
-| `-Description` | `''` | Human-readable description |
-| `-Model` | `sonnet` | Claude model: `sonnet`, `opus`, `haiku` |
-| `-MaxBudget` | `5` | Max USD per run |
-| `-Effort` | `''` | `low`, `medium`, or `high` |
-| `-WorkDir` | `~` | Working directory (`~` = home) |
-| `-LogRetention` | `30` | Days to keep log files |
-| `-AllowedTools` | `[]` | Restrict to specific tools |
-| `-DisallowedTools` | `[]` | Block specific tools |
-| `-McpConfig` | `null` | Path to MCP server config JSON |
-| `-AppendSystemPrompt` | `null` | Extra instructions added to system prompt |
+| `-Description` | | Human-readable description |
+| `-Model` | `sonnet` | Claude model: `sonnet`, `opus`, `haiku`, or a full model ID |
+| `-MaxBudget` | | Max USD per run. Only passed to Claude CLI if explicitly set |
+| `-Effort` | | `low`, `medium`, or `high` — controls how deeply Claude thinks |
+| `-MaxThinkingTokens` | | Cap on thinking tokens (e.g., 8000). Set via `MAX_THINKING_TOKENS` env var at runtime |
+| `-WorkDir` | `~` | Working directory (`~` = user home) |
+| `-LogRetention` | `30` | Days to keep log files before auto-purge |
+| `-AllowedTools` | | Restrict to specific tools (e.g., `Read,WebFetch`) |
+| `-DisallowedTools` | | Block specific tools |
+| `-McpConfig` | | Path to MCP server config JSON |
+| `-AppendSystemPrompt` | | Extra instructions added to the system prompt |
+
+### Models and Thinking
+
+Claude's thinking depth is controlled by a combination of **model** and **effort**:
+
+| Model | Effort | Behavior |
+|-------|--------|----------|
+| `haiku` | any | Fast, cheap, minimal thinking. Good for simple fetch-and-report tasks |
+| `sonnet` | `low` | Quick responses, light reasoning |
+| `sonnet` | `high` | Deep thinking with extended reasoning. Good default for complex tasks |
+| `opus` | `high` | Maximum reasoning capability. Use for tasks requiring deep analysis |
+
+Extended thinking is automatic on Sonnet and Opus — you don't need to enable it. The `--effort` flag controls how much thinking budget Claude allocates. For fine-grained control, use `-MaxThinkingTokens` to cap the thinking token budget.
 
 ## How It Works
 
@@ -125,6 +157,7 @@ The `/claude-scheduler` skill translates your intent into the right CLI command.
    - Reads the job JSON
    - Purges logs older than the retention period
    - Injects an "autonomous mode" system prompt via `--append-system-prompt` telling Claude it's running unattended
+   - Sets `MAX_THINKING_TOKENS` env var if configured
    - Executes `claude -p` with `--dangerously-skip-permissions`, `--output-format json`, and all configured flags
    - Captures output to a timestamped log file
    - Updates the job JSON with last run time, status, and duration
@@ -149,3 +182,7 @@ powershell -ExecutionPolicy Bypass -File uninstall.ps1
 ```
 
 Removes Task Scheduler entries, scripts, and skill. Use `-KeepLogs` or `-KeepJobs` to preserve data.
+
+## License
+
+MIT — free to use, modify, and share.

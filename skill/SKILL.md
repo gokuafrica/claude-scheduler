@@ -51,15 +51,24 @@ powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/schedu
 | -Prompt | (required) | The prompt Claude will execute |
 | -Schedule | (required) | When to run (see schedule syntax below) |
 | -Description | '' | Human-readable description |
-| -Model | sonnet | Claude model: sonnet, opus, haiku |
-| -MaxBudget | 5 | Max USD per run |
-| -Effort | '' | low, medium, or high |
+| -Model | sonnet | Claude model: sonnet, opus, haiku, or full model ID |
+| -MaxBudget | (none) | Max USD per run. Only passed if explicitly set |
+| -Effort | '' | low, medium, or high — controls thinking depth |
+| -MaxThinkingTokens | (none) | Cap thinking tokens (e.g., 8000). Set via env var at runtime |
 | -WorkDir | ~ | Working directory (~ = home) |
 | -AllowedTools | [] | Restrict to specific tools |
 | -DisallowedTools | [] | Block specific tools |
 | -LogRetention | 30 | Days to keep logs |
 | -McpConfig | null | Path to MCP config JSON |
 | -AppendSystemPrompt | null | Extra system prompt text |
+
+### Model and thinking guidance
+
+- For simple tasks (fetch + report): `-Model haiku` — fast and cheap
+- For moderate tasks: `-Model sonnet` (default) — good balance
+- For deep analysis: `-Model sonnet -Effort high` or `-Model opus -Effort high`
+- Thinking is automatic on Sonnet/Opus. Use `-Effort high` for more thinking
+- Do NOT set `-MaxBudget` unless the user explicitly asks for a budget cap
 
 ## Schedule Syntax
 
@@ -106,7 +115,7 @@ Use the `status` command for detailed info including next run time.
 
 **User:** "Schedule a task to fetch HN and summarize it every morning at 9"
 ```bash
-powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/scheduler/claude-scheduler.ps1" create -Name "hn-summary" -Prompt "Fetch https://news.ycombinator.com and write a 5-bullet summary of the top stories to ~/claude-scheduler-reports/hn-summary.md. Create the directory if needed." -Schedule "daily 09:00" -Model "haiku" -MaxBudget 0.50 -Description "Daily HN summary report"
+powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/scheduler/claude-scheduler.ps1" create -Name "hn-summary" -Prompt "Fetch https://news.ycombinator.com and write a 5-bullet summary of the top stories to ~/claude-scheduler-reports/hn-summary.md. Create the directory if needed." -Schedule "daily 09:00" -Model "haiku" -Description "Daily HN summary report"
 ```
 
 **User:** "Disable the HN summary job"

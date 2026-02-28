@@ -179,10 +179,16 @@ AUTONOMOUS SCHEDULED TASK MODE:
         $cliArgs += $job.effort
     }
 
-    # Optional: max budget
-    if ($job.PSObject.Properties['maxBudgetUsd'] -and $job.maxBudgetUsd -gt 0) {
+    # Optional: max budget (only if explicitly set)
+    if ($job.PSObject.Properties['maxBudgetUsd'] -and $null -ne $job.maxBudgetUsd) {
         $cliArgs += '--max-budget-usd'
         $cliArgs += $job.maxBudgetUsd.ToString()
+    }
+
+    # Optional: thinking token budget (set via environment variable)
+    if ($job.PSObject.Properties['maxThinkingTokens'] -and $job.maxThinkingTokens -gt 0) {
+        $env:MAX_THINKING_TOKENS = $job.maxThinkingTokens.ToString()
+        Write-Log "Thinking tokens: $($job.maxThinkingTokens)"
     }
 
     # Optional: allowed tools
@@ -221,7 +227,8 @@ AUTONOMOUS SCHEDULED TASK MODE:
 
     Write-Log "Prompt: $($job.prompt)"
     Write-Log "Model: $(if ($job.model) { $job.model } else { 'default' })"
-    Write-Log "Budget: $(if ($job.maxBudgetUsd) { "`$$($job.maxBudgetUsd)" } else { 'unlimited' })"
+    if ($null -ne $job.maxBudgetUsd) { Write-Log "Budget: `$$($job.maxBudgetUsd)" }
+    if ($job.PSObject.Properties['effort'] -and $job.effort) { Write-Log "Effort: $($job.effort)" }
     Write-Log "Executing Claude CLI..."
     Write-Log "---"
 

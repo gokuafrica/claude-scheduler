@@ -21,12 +21,13 @@ param(
     [string]$Schedule,
     [string]$Description,
     [string]$Model,
-    [double]$MaxBudget = 0,
+    [double]$MaxBudget = -1,
     [string[]]$AllowedTools,
     [string[]]$DisallowedTools,
     [string]$WorkDir,
     [string]$McpConfig,
     [string]$Effort,
+    [int]$MaxThinkingTokens = 0,
     [int]$LogRetention = 30,
     [string]$AppendSystemPrompt,
     [switch]$NoSessionPersistence,
@@ -198,11 +199,12 @@ switch ($Command) {
             prompt               = $Prompt
             schedule             = $Schedule
             enabled              = $true
-            maxBudgetUsd         = if ($MaxBudget -gt 0) { $MaxBudget } else { 5.0 }
+            maxBudgetUsd         = if ($MaxBudget -ge 0) { $MaxBudget } else { $null }
             allowedTools         = if ($AllowedTools) { @($AllowedTools) } else { @() }
             disallowedTools      = if ($DisallowedTools) { @($DisallowedTools) } else { @() }
             model                = if ($Model) { $Model } else { 'sonnet' }
             effort               = if ($Effort) { $Effort } else { '' }
+            maxThinkingTokens    = if ($MaxThinkingTokens -gt 0) { $MaxThinkingTokens } else { $null }
             workingDirectory     = if ($WorkDir) { $WorkDir } else { '~' }
             mcpConfig            = if ($McpConfig) { $McpConfig } else { $null }
             appendSystemPrompt   = if ($AppendSystemPrompt) { $AppendSystemPrompt } else { $null }
@@ -248,7 +250,9 @@ switch ($Command) {
         Write-Host "Job '$Name' created successfully!"
         Write-Host "  Schedule : $Schedule"
         Write-Host "  Model    : $($job.model)"
-        Write-Host "  Budget   : `$$($job.maxBudgetUsd)"
+        if ($job.maxBudgetUsd) { Write-Host "  Budget   : `$$($job.maxBudgetUsd)" }
+        if ($job.effort) { Write-Host "  Effort   : $($job.effort)" }
+        if ($job.maxThinkingTokens) { Write-Host "  Thinking : $($job.maxThinkingTokens) tokens" }
         Write-Host "  Run now  : claude-scheduler run -Name $Name"
         Write-Host "  Disable  : claude-scheduler disable -Name $Name"
     }
@@ -516,8 +520,13 @@ switch ($Command) {
         Write-Host "  Schedule     : $($job.schedule)"
         Write-Host "  Enabled      : $(if ($job.enabled) { 'Yes' } else { 'No' })"
         Write-Host "  Model        : $(if ($job.model) { $job.model } else { 'default' })"
-        Write-Host "  Budget       : $(if ($job.maxBudgetUsd) { "`$$($job.maxBudgetUsd)" } else { '-' })"
+        if ($job.PSObject.Properties['maxBudgetUsd'] -and $null -ne $job.maxBudgetUsd) {
+            Write-Host "  Budget       : `$$($job.maxBudgetUsd)"
+        }
         Write-Host "  Effort       : $(if ($job.effort) { $job.effort } else { '-' })"
+        if ($job.PSObject.Properties['maxThinkingTokens'] -and $job.maxThinkingTokens) {
+            Write-Host "  Thinking     : $($job.maxThinkingTokens) tokens"
+        }
         Write-Host "  Working Dir  : $(if ($job.workingDirectory) { $job.workingDirectory } else { '~' })"
         Write-Host "  Log Retention: $($job.logRetentionDays) days"
         Write-Host ""
