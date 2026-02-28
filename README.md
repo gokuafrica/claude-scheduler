@@ -125,29 +125,15 @@ Set-Alias -Name cs -Value "$env:USERPROFILE\.claude\scheduler\claude-scheduler.p
 | `-Prompt` | (required) | The prompt Claude will execute |
 | `-Schedule` | (required) | When to run (see formats above) |
 | `-Description` | | Human-readable description |
-| `-Model` | `sonnet` | Claude model: `sonnet`, `opus`, `haiku`, or a full model ID |
+| `-Model` | `sonnet` | Claude model: `sonnet`, `opus`, `haiku` |
 | `-MaxBudget` | | Max USD per run. Only passed to Claude CLI if explicitly set |
-| `-Effort` | | `low`, `medium`, or `high` — controls how deeply Claude thinks |
-| `-MaxThinkingTokens` | | Cap on thinking tokens (e.g., 8000). Set via `MAX_THINKING_TOKENS` env var at runtime |
+| `-Effort` | | `low`, `medium`, or `high` |
 | `-WorkDir` | `~` | Working directory (`~` = user home) |
 | `-LogRetention` | `30` | Days to keep log files before auto-purge |
 | `-AllowedTools` | | Restrict to specific tools (e.g., `Read,WebFetch`) |
 | `-DisallowedTools` | | Block specific tools |
 | `-McpConfig` | | Path to MCP server config JSON |
 | `-AppendSystemPrompt` | | Extra instructions added to the system prompt |
-
-### Models and Thinking
-
-Claude's thinking depth is controlled by a combination of **model** and **effort**:
-
-| Model | Effort | Behavior |
-|-------|--------|----------|
-| `haiku` | any | Fast, cheap, minimal thinking. Good for simple fetch-and-report tasks |
-| `sonnet` | `low` | Quick responses, light reasoning |
-| `sonnet` | `high` | Deep thinking with extended reasoning. Good default for complex tasks |
-| `opus` | `high` | Maximum reasoning capability. Use for tasks requiring deep analysis |
-
-Extended thinking is automatic on Sonnet and Opus — you don't need to enable it. The `--effort` flag controls how much thinking budget Claude allocates. For fine-grained control, use `-MaxThinkingTokens` to cap the thinking token budget.
 
 ## How It Works
 
@@ -157,7 +143,6 @@ Extended thinking is automatic on Sonnet and Opus — you don't need to enable i
    - Reads the job JSON
    - Purges logs older than the retention period
    - Injects an "autonomous mode" system prompt via `--append-system-prompt` telling Claude it's running unattended
-   - Sets `MAX_THINKING_TOKENS` env var if configured
    - Executes `claude -p` with `--dangerously-skip-permissions`, `--output-format json`, and all configured flags
    - Captures output to a timestamped log file
    - Updates the job JSON with last run time, status, and duration

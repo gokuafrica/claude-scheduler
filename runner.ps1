@@ -185,12 +185,6 @@ AUTONOMOUS SCHEDULED TASK MODE:
         $cliArgs += $job.maxBudgetUsd.ToString()
     }
 
-    # Optional: thinking token budget (set via environment variable)
-    if ($job.PSObject.Properties['maxThinkingTokens'] -and $job.maxThinkingTokens -gt 0) {
-        $env:MAX_THINKING_TOKENS = $job.maxThinkingTokens.ToString()
-        Write-Log "Thinking tokens: $($job.maxThinkingTokens)"
-    }
-
     # Optional: allowed tools
     if ($job.PSObject.Properties['allowedTools'] -and $job.allowedTools) {
         $tools = @($job.allowedTools)

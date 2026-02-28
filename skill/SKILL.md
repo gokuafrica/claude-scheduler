@@ -51,10 +51,9 @@ powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/schedu
 | -Prompt | (required) | The prompt Claude will execute |
 | -Schedule | (required) | When to run (see schedule syntax below) |
 | -Description | '' | Human-readable description |
-| -Model | sonnet | Claude model: sonnet, opus, haiku, or full model ID |
+| -Model | sonnet | Claude model: sonnet, opus, haiku |
 | -MaxBudget | (none) | Max USD per run. Only passed if explicitly set |
-| -Effort | '' | low, medium, or high — controls thinking depth |
-| -MaxThinkingTokens | (none) | Cap thinking tokens (e.g., 8000). Set via env var at runtime |
+| -Effort | '' | low, medium, or high |
 | -WorkDir | ~ | Working directory (~ = home) |
 | -AllowedTools | [] | Restrict to specific tools |
 | -DisallowedTools | [] | Block specific tools |
@@ -62,12 +61,11 @@ powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/schedu
 | -McpConfig | null | Path to MCP config JSON |
 | -AppendSystemPrompt | null | Extra system prompt text |
 
-### Model and thinking guidance
+### Model guidance
 
 - For simple tasks (fetch + report): `-Model haiku` — fast and cheap
 - For moderate tasks: `-Model sonnet` (default) — good balance
-- For deep analysis: `-Model sonnet -Effort high` or `-Model opus -Effort high`
-- Thinking is automatic on Sonnet/Opus. Use `-Effort high` for more thinking
+- For deep analysis: `-Model opus -Effort high`
 - Do NOT set `-MaxBudget` unless the user explicitly asks for a budget cap
 
 ## Schedule Syntax

@@ -27,7 +27,6 @@ param(
     [string]$WorkDir,
     [string]$McpConfig,
     [string]$Effort,
-    [int]$MaxThinkingTokens = 0,
     [int]$LogRetention = 30,
     [string]$AppendSystemPrompt,
     [switch]$NoSessionPersistence,
@@ -204,7 +203,6 @@ switch ($Command) {
             disallowedTools      = if ($DisallowedTools) { @($DisallowedTools) } else { @() }
             model                = if ($Model) { $Model } else { 'sonnet' }
             effort               = if ($Effort) { $Effort } else { '' }
-            maxThinkingTokens    = if ($MaxThinkingTokens -gt 0) { $MaxThinkingTokens } else { $null }
             workingDirectory     = if ($WorkDir) { $WorkDir } else { '~' }
             mcpConfig            = if ($McpConfig) { $McpConfig } else { $null }
             appendSystemPrompt   = if ($AppendSystemPrompt) { $AppendSystemPrompt } else { $null }
@@ -252,7 +250,6 @@ switch ($Command) {
         Write-Host "  Model    : $($job.model)"
         if ($job.maxBudgetUsd) { Write-Host "  Budget   : `$$($job.maxBudgetUsd)" }
         if ($job.effort) { Write-Host "  Effort   : $($job.effort)" }
-        if ($job.maxThinkingTokens) { Write-Host "  Thinking : $($job.maxThinkingTokens) tokens" }
         Write-Host "  Run now  : claude-scheduler run -Name $Name"
         Write-Host "  Disable  : claude-scheduler disable -Name $Name"
     }
@@ -524,9 +521,6 @@ switch ($Command) {
             Write-Host "  Budget       : `$$($job.maxBudgetUsd)"
         }
         Write-Host "  Effort       : $(if ($job.effort) { $job.effort } else { '-' })"
-        if ($job.PSObject.Properties['maxThinkingTokens'] -and $job.maxThinkingTokens) {
-            Write-Host "  Thinking     : $($job.maxThinkingTokens) tokens"
-        }
         Write-Host "  Working Dir  : $(if ($job.workingDirectory) { $job.workingDirectory } else { '~' })"
         Write-Host "  Log Retention: $($job.logRetentionDays) days"
         Write-Host ""
