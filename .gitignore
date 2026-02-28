@@ -1,0 +1,3 @@
+# Installed state (lives in ~/.claude/scheduler/, not in repo)
+jobs/
+logs/
