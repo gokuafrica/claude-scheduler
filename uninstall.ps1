@@ -117,7 +117,7 @@ if ($KeepJobs -and (Test-Path $JobsDir)) {
 
 if (Test-Path $SchedulerDir) {
     # Remove scripts
-    Get-ChildItem -Path $SchedulerDir -Filter '*.ps1' | Remove-Item -Force
+    Get-ChildItem -Path $SchedulerDir -File | Remove-Item -Force
     Write-Host '  Removed scripts.'
 
     # Remove jobs dir if not keeping

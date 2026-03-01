@@ -13,7 +13,7 @@
 #>
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('create', 'list', 'enable', 'disable', 'run', 'delete', 'logs', 'purge-logs', 'status')]
+    [ValidateSet('create', 'list', 'update', 'enable', 'disable', 'run', 'delete', 'logs', 'purge-logs', 'status', 'setup-notify', 'test-notify')]
     [string]$Command,
 
     [string]$Name,
@@ -36,7 +36,16 @@ param(
     [int]$Tail = 50,
 
     # Purge-logs parameters
-    [int]$Days = 30
+    [int]$Days = 30,
+
+    # Setup-notify parameters
+    [string]$NotifyCommand,
+    [string[]]$NotifyArgs,
+    [string[]]$NotifyOn,
+    [switch]$Disable,
+
+    # Delete parameters
+    [switch]$KeepLogs
 )
 
 Set-StrictMode -Version Latest
@@ -169,6 +178,33 @@ function Get-ClaudeTask {
     }
 }
 
+# --- Helper: Register a Claude scheduled task ---
+function Register-ClaudeScheduledTask {
+    param([string]$TaskName, [object]$Trigger, [string]$Description)
+    $action = New-ScheduledTaskAction `
+        -Execute 'powershell.exe' `
+        -Argument "-ExecutionPolicy Bypass -NoProfile -NonInteractive -File `"$RunnerPath`" -JobName `"$TaskName`""
+    $principal = New-ScheduledTaskPrincipal `
+        -UserId $env:USERNAME `
+        -LogonType Interactive `
+        -RunLevel Limited
+    $settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -MultipleInstances IgnoreNew `
+        -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+    $desc = if ($Description) { $Description } else { "Claude Scheduler job: $TaskName" }
+    Register-ScheduledTask `
+        -TaskName $TaskName `
+        -TaskPath $TaskPath `
+        -Action $action `
+        -Trigger $Trigger `
+        -Principal $principal `
+        -Settings $settings `
+        -Description $desc | Out-Null
+}
+
 # ============================================================
 # COMMANDS
 # ============================================================
@@ -207,7 +243,7 @@ switch ($Command) {
             mcpConfig            = if ($McpConfig) { $McpConfig } else { $null }
             appendSystemPrompt   = if ($AppendSystemPrompt) { $AppendSystemPrompt } else { $null }
             logRetentionDays     = $LogRetention
-            noSessionPersistence = if ($NoSessionPersistence) { $true } else { $true }
+            noSessionPersistence = $true
             createdAt            = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss')
             lastRunAt            = $null
             lastRunStatus        = $null
@@ -219,30 +255,8 @@ switch ($Command) {
         Write-Host "Created job definition: $jobFile"
 
         # Register Task Scheduler entry
-        $action = New-ScheduledTaskAction `
-            -Execute 'powershell.exe' `
-            -Argument "-ExecutionPolicy Bypass -NoProfile -NonInteractive -File `"$RunnerPath`" -JobName `"$Name`""
-
-        $principal = New-ScheduledTaskPrincipal `
-            -UserId $env:USERNAME `
-            -LogonType Interactive `
-            -RunLevel Limited
-
-        $settings = New-ScheduledTaskSettingsSet `
-            -AllowStartIfOnBatteries `
-            -DontStopIfGoingOnBatteries `
-            -StartWhenAvailable `
-            -MultipleInstances IgnoreNew `
-            -ExecutionTimeLimit (New-TimeSpan -Hours 2)
-
-        Register-ScheduledTask `
-            -TaskName $Name `
-            -TaskPath $TaskPath `
-            -Action $action `
-            -Trigger $trigger `
-            -Principal $principal `
-            -Settings $settings `
-            -Description $(if ($Description) { $Description } else { "Claude Scheduler job: $Name" }) | Out-Null
+        Register-ClaudeScheduledTask -TaskName $Name -Trigger $trigger `
+            -Description $(if ($Description) { $Description } else { $null })
 
         Write-Host ""
         Write-Host "Job '$Name' created successfully!"
@@ -252,6 +266,140 @@ switch ($Command) {
         if ($job.effort) { Write-Host "  Effort   : $($job.effort)" }
         Write-Host "  Run now  : claude-scheduler run -Name $Name"
         Write-Host "  Disable  : claude-scheduler disable -Name $Name"
+    }
+
+    'update' {
+        if (-not (Test-JobName $Name)) { exit 1 }
+        $jobFile = Join-Path $JobsDir "$Name.json"
+        if (-not (Test-Path $jobFile)) {
+            Write-Error "Job '$Name' not found. Use 'create' to make a new job."
+            exit 1
+        }
+
+        # Check that at least one updatable field was provided
+        $updatableParams = @('Schedule', 'Prompt', 'Description', 'Model', 'MaxBudget',
+                             'Effort', 'WorkDir', 'AllowedTools', 'DisallowedTools',
+                             'LogRetention', 'McpConfig', 'AppendSystemPrompt')
+        $hasUpdate = $false
+        foreach ($p in $updatableParams) {
+            if ($PSBoundParameters.ContainsKey($p)) { $hasUpdate = $true; break }
+        }
+        if (-not $hasUpdate) {
+            Write-Error "No fields to update. Provide at least one of: -Schedule, -Prompt, -Model, -Description, -Effort, -MaxBudget, -WorkDir, -AllowedTools, -DisallowedTools, -LogRetention, -McpConfig, -AppendSystemPrompt"
+            exit 1
+        }
+
+        # If schedule is being changed, validate it first (fail-fast)
+        $trigger = $null
+        if ($PSBoundParameters.ContainsKey('Schedule')) {
+            Write-Host "Parsing schedule: $Schedule"
+            $trigger = ConvertTo-ScheduledTaskTrigger $Schedule
+        }
+
+        # Load existing job
+        $job = Get-Content -Path $jobFile -Raw | ConvertFrom-Json
+
+        # Track changes for summary
+        $changes = @()
+
+        # Update each field that was explicitly provided
+        if ($PSBoundParameters.ContainsKey('Schedule')) {
+            $changes += "Schedule: '$($job.schedule)' -> '$Schedule'"
+            $job | Add-Member -NotePropertyName 'schedule' -NotePropertyValue $Schedule -Force
+        }
+        if ($PSBoundParameters.ContainsKey('Prompt')) {
+            $changes += "Prompt: updated"
+            $job | Add-Member -NotePropertyName 'prompt' -NotePropertyValue $Prompt -Force
+        }
+        if ($PSBoundParameters.ContainsKey('Description')) {
+            $changes += "Description: updated"
+            $job | Add-Member -NotePropertyName 'description' -NotePropertyValue $(if ($Description) { $Description } else { '' }) -Force
+        }
+        if ($PSBoundParameters.ContainsKey('Model')) {
+            $changes += "Model: '$($job.model)' -> '$Model'"
+            $job | Add-Member -NotePropertyName 'model' -NotePropertyValue $Model -Force
+        }
+        if ($PSBoundParameters.ContainsKey('MaxBudget')) {
+            $budgetVal = if ($MaxBudget -ge 0) { $MaxBudget } else { $null }
+            $oldBudget = if ($job.maxBudgetUsd) { "`$$($job.maxBudgetUsd)" } else { 'none' }
+            $newBudget = if ($budgetVal) { "`$$budgetVal" } else { 'none' }
+            $changes += "Budget: $oldBudget -> $newBudget"
+            $job | Add-Member -NotePropertyName 'maxBudgetUsd' -NotePropertyValue $budgetVal -Force
+        }
+        if ($PSBoundParameters.ContainsKey('Effort')) {
+            $changes += "Effort: '$($job.effort)' -> '$Effort'"
+            $job | Add-Member -NotePropertyName 'effort' -NotePropertyValue $(if ($Effort) { $Effort } else { '' }) -Force
+        }
+        if ($PSBoundParameters.ContainsKey('WorkDir')) {
+            $changes += "WorkDir: updated"
+            $job | Add-Member -NotePropertyName 'workingDirectory' -NotePropertyValue $(if ($WorkDir) { $WorkDir } else { '~' }) -Force
+        }
+        if ($PSBoundParameters.ContainsKey('AllowedTools')) {
+            $changes += "AllowedTools: updated"
+            $job | Add-Member -NotePropertyName 'allowedTools' -NotePropertyValue @($AllowedTools) -Force
+        }
+        if ($PSBoundParameters.ContainsKey('DisallowedTools')) {
+            $changes += "DisallowedTools: updated"
+            $job | Add-Member -NotePropertyName 'disallowedTools' -NotePropertyValue @($DisallowedTools) -Force
+        }
+        if ($PSBoundParameters.ContainsKey('LogRetention')) {
+            $changes += "LogRetention: $($job.logRetentionDays) -> $LogRetention days"
+            $job | Add-Member -NotePropertyName 'logRetentionDays' -NotePropertyValue $LogRetention -Force
+        }
+        if ($PSBoundParameters.ContainsKey('McpConfig')) {
+            $changes += "McpConfig: updated"
+            $job | Add-Member -NotePropertyName 'mcpConfig' -NotePropertyValue $(if ($McpConfig) { $McpConfig } else { $null }) -Force
+        }
+        if ($PSBoundParameters.ContainsKey('AppendSystemPrompt')) {
+            $changes += "AppendSystemPrompt: updated"
+            $job | Add-Member -NotePropertyName 'appendSystemPrompt' -NotePropertyValue $(if ($AppendSystemPrompt) { $AppendSystemPrompt } else { $null }) -Force
+        }
+
+        # Auto-enable if schedule changed and job is disabled
+        $wasReEnabled = $false
+        if ($PSBoundParameters.ContainsKey('Schedule') -and $job.enabled -eq $false) {
+            $job | Add-Member -NotePropertyName 'enabled' -NotePropertyValue $true -Force
+            $wasReEnabled = $true
+            $changes += "Enabled: No -> Yes (auto-enabled with new schedule)"
+        }
+
+        # Save updated JSON
+        $job | ConvertTo-Json -Depth 10 | Set-Content -Path $jobFile -Encoding utf8
+
+        # Re-register Task Scheduler if schedule changed or job was re-enabled
+        if ($PSBoundParameters.ContainsKey('Schedule') -or $wasReEnabled) {
+            if (-not $trigger) {
+                $trigger = ConvertTo-ScheduledTaskTrigger $job.schedule
+            }
+
+            try {
+                Unregister-ScheduledTask -TaskPath $TaskPath -TaskName $Name -Confirm:$false
+            } catch {
+                Write-Host "Warning: Could not remove old Task Scheduler entry: $_"
+            }
+
+            $desc = if ($job.description) { $job.description } else { $null }
+            Register-ClaudeScheduledTask -TaskName $Name -Trigger $trigger -Description $desc
+            Write-Host "Task Scheduler entry updated."
+
+            if ($wasReEnabled) {
+                Enable-ScheduledTask -TaskPath $TaskPath -TaskName $Name -ErrorAction SilentlyContinue
+            }
+        }
+
+        # Summary
+        Write-Host ""
+        Write-Host "Updated job '$Name':"
+        foreach ($change in $changes) {
+            Write-Host "  - $change"
+        }
+        if ($wasReEnabled) {
+            Write-Host ""
+            Write-Host "  Job was disabled and has been re-enabled with the new schedule."
+        }
+        Write-Host ""
+        Write-Host "  Status : claude-scheduler status -Name $Name"
+        Write-Host "  Run now: claude-scheduler run -Name $Name"
     }
 
     'list' {
@@ -392,8 +540,17 @@ switch ($Command) {
             exit 1
         }
 
-        Write-Host "Delete job '$Name' and its Task Scheduler entry?"
-        Write-Host "Logs will be preserved at: $(Join-Path $LogsDir $Name)"
+        $jobLogDir = Join-Path $LogsDir $Name
+        $hasLogs = Test-Path $jobLogDir
+
+        Write-Host "Delete job '$Name'?"
+        Write-Host "  - Task Scheduler entry"
+        Write-Host "  - Job definition ($jobFile)"
+        if ($hasLogs -and -not $KeepLogs) {
+            Write-Host "  - All logs ($jobLogDir)"
+        } elseif ($hasLogs -and $KeepLogs) {
+            Write-Host "  - Logs will be PRESERVED at: $jobLogDir"
+        }
         $confirm = Read-Host "Type 'yes' to confirm"
 
         if ($confirm -ne 'yes') {
@@ -412,7 +569,16 @@ switch ($Command) {
         # Remove job JSON
         Remove-Item -Path $jobFile -Force
         Write-Host "Removed job definition."
-        Write-Host "Deleted job '$Name'. Logs preserved."
+
+        # Remove logs (unless -KeepLogs)
+        if (-not $KeepLogs -and $hasLogs) {
+            Remove-Item -Path $jobLogDir -Recurse -Force
+            Write-Host "Removed logs."
+        } elseif ($KeepLogs -and $hasLogs) {
+            Write-Host "Logs preserved at: $jobLogDir"
+        }
+
+        Write-Host "Deleted job '$Name'."
     }
 
     'logs' {
@@ -534,6 +700,105 @@ switch ($Command) {
         Write-Host ""
     }
 
+    'setup-notify' {
+        $notifyFile = Join-Path $SchedulerDir 'notify.json'
+
+        # Disable notifications
+        if ($Disable) {
+            if (Test-Path $notifyFile) {
+                $config = Get-Content -Path $notifyFile -Raw | ConvertFrom-Json
+                $config | Add-Member -NotePropertyName 'enabled' -NotePropertyValue $false -Force
+                $config | ConvertTo-Json -Depth 10 | Set-Content -Path $notifyFile -Encoding utf8
+                Write-Host "Notifications disabled."
+            } else {
+                Write-Host "No notification config found. Nothing to disable."
+            }
+            exit 0
+        }
+
+        # Show current config if no params provided
+        if (-not $NotifyCommand) {
+            if (Test-Path $notifyFile) {
+                $config = Get-Content -Path $notifyFile -Raw | ConvertFrom-Json
+                Write-Host "=== Notification Config ==="
+                Write-Host "  Enabled  : $($config.enabled)"
+                Write-Host "  Command  : $($config.command)"
+                Write-Host "  Args     : $($config.args -join ' ')"
+                Write-Host "  Notify On: $($config.notifyOn -join ', ')"
+                Write-Host ""
+                Write-Host "Test: claude-scheduler test-notify"
+                Write-Host "Disable: claude-scheduler setup-notify -Disable"
+            } else {
+                Write-Host "No notification config found."
+                Write-Host ""
+                Write-Host "Set up with:"
+                Write-Host '  claude-scheduler setup-notify -NotifyCommand <cmd> -NotifyArgs <args>'
+                Write-Host ""
+                Write-Host "The notification command receives {{message}} replaced with failure details."
+            }
+            exit 0
+        }
+
+        # Validate args contain {{message}} placeholder
+        $hasPlaceholder = $false
+        foreach ($arg in $NotifyArgs) {
+            if ($arg -match '\{\{message\}\}') { $hasPlaceholder = $true; break }
+        }
+        if (-not $hasPlaceholder) {
+            Write-Host "WARNING: None of your -NotifyArgs contain '{{message}}'." -ForegroundColor Yellow
+            Write-Host "The notification will fire but won't include failure details."
+            Write-Host ""
+        }
+
+        # Build config
+        $notifyOnValues = if ($NotifyOn) { @($NotifyOn) } else { @('job-failure', 'all-failures') }
+
+        $config = [ordered]@{
+            enabled   = $true
+            method    = 'command'
+            command   = $NotifyCommand
+            args      = @($NotifyArgs)
+            notifyOn  = $notifyOnValues
+        }
+
+        $config | ConvertTo-Json -Depth 10 | Set-Content -Path $notifyFile -Encoding utf8
+
+        Write-Host "Notification config saved to: $notifyFile"
+        Write-Host "  Command  : $NotifyCommand"
+        Write-Host "  Args     : $($NotifyArgs -join ' ')"
+        Write-Host "  Notify On: $($notifyOnValues -join ', ')"
+        Write-Host ""
+        Write-Host "Test it: claude-scheduler test-notify"
+    }
+
+    'test-notify' {
+        $notifyFile = Join-Path $SchedulerDir 'notify.json'
+        if (-not (Test-Path $notifyFile)) {
+            Write-Host "No notification config found. Run setup-notify first."
+            exit 1
+        }
+
+        $config = Get-Content -Path $notifyFile -Raw | ConvertFrom-Json
+        if (-not $config.enabled) {
+            Write-Host "Notifications are disabled. Enable with: claude-scheduler setup-notify -NotifyCommand ..."
+            exit 1
+        }
+
+        Write-Host "Sending test notification..."
+        $testMessage = "[Claude Scheduler] Test notification - if you see this, notifications are working!"
+
+        try {
+            $cmdArgs = @($config.args) | ForEach-Object { $_ -replace '\{\{message\}\}', $testMessage }
+            & $config.command @cmdArgs 2>&1 | Out-Null
+            Write-Host "Test notification sent via $($config.command)"
+            Write-Host "Check your device for the message."
+        } catch {
+            Write-Host "Failed to send test notification: $_" -ForegroundColor Red
+            Write-Host "Check your NotifyCommand path and NotifyArgs."
+            exit 1
+        }
+    }
+
     default {
         Write-Host "Claude Scheduler - Manage scheduled Claude Code jobs"
         Write-Host ""
@@ -542,16 +807,18 @@ switch ($Command) {
         Write-Host "Commands:"
         Write-Host "  create     Create a new scheduled job"
         Write-Host "  list       List all jobs with status"
+        Write-Host "  update     Update an existing job (schedule, prompt, model, etc.)"
         Write-Host "  enable     Enable a disabled job"
         Write-Host "  disable    Temporarily disable a job (preserves it)"
         Write-Host "  run        Run a job immediately"
-        Write-Host "  delete     Delete a job permanently"
+        Write-Host "  delete     Delete a job permanently (use -KeepLogs to preserve logs)"
         Write-Host "  logs       View latest log for a job"
         Write-Host "  purge-logs Purge old log files"
         Write-Host "  status     Show detailed job status"
         Write-Host ""
         Write-Host "Examples:"
         Write-Host '  claude-scheduler create -Name "daily-summary" -Prompt "Summarize HN" -Schedule "daily 09:00"'
+        Write-Host '  claude-scheduler update -Name "daily-summary" -Schedule "weekly Monday 09:00"'
         Write-Host '  claude-scheduler list'
         Write-Host '  claude-scheduler run -Name "daily-summary"'
         Write-Host '  claude-scheduler disable -Name "daily-summary"'

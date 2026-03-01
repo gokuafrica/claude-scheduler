@@ -56,6 +56,37 @@ function Write-JobJson {
     Move-Item -Path $tempFile -Destination $Path -Force
 }
 
+# --- Helper: Send failure notification to user's phone ---
+function Send-FailureNotification {
+    param([string]$JobName, [string]$Reason)
+    try {
+        $notifyFile = Join-Path $SchedulerDir 'notify.json'
+        if (-not (Test-Path $notifyFile)) { return }
+
+        $config = Get-Content -Path $notifyFile -Raw | ConvertFrom-Json
+        if (-not $config.enabled) { return }
+
+        # Check if this failure type should trigger a notification
+        $notifyOn = @($config.notifyOn)
+        $shouldNotify = $false
+        if ('all-failures' -in $notifyOn) { $shouldNotify = $true }
+        if ('job-failure' -in $notifyOn) { $shouldNotify = $true }
+        if (-not $shouldNotify) { return }
+
+        # Build message with actionable info
+        $message = "[Claude Scheduler] Job '$JobName' failed: $Reason`nRe-run: claude-scheduler run -Name $JobName"
+
+        # Execute notification command with {{message}} placeholder replaced
+        $cmdArgs = @($config.args) | ForEach-Object { $_ -replace '\{\{message\}\}', $message }
+        & $config.command @cmdArgs 2>&1 | Out-Null
+
+        Write-Log "Notification sent via $($config.command)"
+    } catch {
+        # Non-fatal — notification failure should never block job execution
+        Write-Log "Failed to send notification: $_" -IsError
+    }
+}
+
 # --- Main Execution ---
 try {
     # 1. Validate job file exists
@@ -268,12 +299,18 @@ AUTONOMOUS SCHEDULED TASK MODE:
     Write-Log "---"
     Write-Log "Job completed: status=$($job.lastRunStatus), duration=$([Math]::Round($duration, 1))s"
 
+    # Send notification for job failures
+    if ($exitCode -ne 0) {
+        Send-FailureNotification -JobName $JobName -Reason "Exit code $exitCode. Check logs for details."
+    }
+
     exit $exitCode
 
 } catch {
     # Fatal error handler
     Write-Log "FATAL ERROR: $_" -IsError
     Write-Log "Stack trace: $($_.ScriptStackTrace)" -IsError
+    Send-FailureNotification -JobName $JobName -Reason "Fatal error: $($_.Exception.Message)"
 
     # Try to update job status even on fatal error
     try {

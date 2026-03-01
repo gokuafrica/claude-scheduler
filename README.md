@@ -57,8 +57,9 @@ Once installed, just talk to Claude:
 | "What jobs do I have?" | Lists all jobs with status |
 | "Run my summary job now" | Executes immediately |
 | "Pause the daily scan" | Disables without deleting |
+| "Change my job to run weekly" | Updates the schedule |
 | "Show me the logs for my-job" | Displays latest run output |
-| "Delete the test job" | Removes permanently |
+| "Delete the test job" | Removes permanently (job + logs) |
 
 The `/claude-scheduler` skill translates your intent into the right commands.
 
@@ -72,6 +73,16 @@ The `/claude-scheduler` skill translates your intent into the right commands.
   -Schedule "daily 09:00" `
   -Model "sonnet" `
   -Effort "high"
+
+# Update schedule (also re-activates one-time jobs)
+& "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" update `
+  -Name "daily-summary" `
+  -Schedule "weekly Monday 09:00"
+
+# Update model and effort (keeps everything else)
+& "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" update `
+  -Name "daily-summary" `
+  -Model "opus" -Effort "high"
 
 # List all jobs
 & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" list
@@ -91,8 +102,11 @@ The `/claude-scheduler` skill translates your intent into the right commands.
 # Detailed status
 & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" status -Name "daily-summary"
 
-# Delete a job permanently
+# Delete a job permanently (removes task, JSON, and logs)
 & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" delete -Name "daily-summary"
+
+# Delete but keep logs for reference
+& "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" delete -Name "daily-summary" -KeepLogs
 
 # Purge logs older than 7 days
 & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" purge-logs -Days 7
@@ -135,6 +149,32 @@ Set-Alias -Name cs -Value "$env:USERPROFILE\.claude\scheduler\claude-scheduler.p
 | `-McpConfig` | | Path to MCP server config JSON |
 | `-AppendSystemPrompt` | | Extra instructions added to the system prompt |
 
+## Failure Notifications
+
+Get notified on your phone when a scheduled job fails.
+
+### Setup
+
+```powershell
+# WhatsApp (via wacli)
+& "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" setup-notify `
+  -NotifyCommand "wacli" `
+  -NotifyArgs "send","--to","<phone>","--message","{{message}}"
+
+# ntfy.sh (free push notifications — no account needed)
+& "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" setup-notify `
+  -NotifyCommand "curl" `
+  -NotifyArgs "-d","{{message}}","ntfy.sh/your-topic"
+
+# Test it
+& "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" test-notify
+
+# Disable
+& "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" setup-notify -Disable
+```
+
+The `{{message}}` placeholder is replaced with a description of which job failed and why. Notifications are stored in `~/.claude/scheduler/notify.json`.
+
 ## How It Works
 
 1. **`create`** writes a job definition JSON to `~/.claude/scheduler/jobs/` and registers a Windows Task Scheduler entry under `\ClaudeScheduler\`.
@@ -159,6 +199,14 @@ Set-Alias -Name cs -Value "$env:USERPROFILE\.claude\scheduler\claude-scheduler.p
 | Logs | `~/.claude/scheduler/logs/{job-name}/*.log` |
 | Skill | `~/.claude/skills/claude-scheduler/SKILL.md` |
 | Task Scheduler | `\ClaudeScheduler\` folder in Task Scheduler |
+
+## Chrome Extension Jobs (Not Currently Viable)
+
+We explored scheduling jobs that use the Claude Chrome extension for browser automation (checking dashboards, reading logged-in services, etc.). The Chrome extension's MCP connection is currently unreliable for unattended use — see [this upstream issue](https://github.com/anthropics/claude-code/issues/26347).
+
+For a detailed account of what we tried and what we learned, see [CHROME-EXTENSION-RETROSPECTIVE.md](CHROME-EXTENSION-RETROSPECTIVE.md).
+
+We'll revisit this when the extension stabilizes.
 
 ## Uninstall
 

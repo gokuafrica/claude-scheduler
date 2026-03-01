@@ -34,14 +34,17 @@ powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/schedu
 | Command | Syntax | Purpose |
 |---------|--------|---------|
 | create | `create -Name <n> -Prompt <p> -Schedule <s> [opts]` | Create a new scheduled job |
+| update | `update -Name <n> [-Schedule <s>] [-Prompt <p>] [opts]` | Update an existing job |
 | list | `list` | Show all jobs with status |
 | enable | `enable -Name <n>` | Re-enable a disabled job |
 | disable | `disable -Name <n>` | Temporarily pause a job |
 | run | `run -Name <n>` | Execute a job immediately |
-| delete | `delete -Name <n>` | Permanently remove a job |
+| delete | `delete -Name <n> [-KeepLogs]` | Permanently remove a job and its logs |
 | logs | `logs -Name <n> [-Tail N]` | View latest log output |
 | purge-logs | `purge-logs [-Days N] [-Name <n>]` | Delete old log files |
 | status | `status -Name <n>` | Detailed job information |
+| setup-notify | `setup-notify -NotifyCommand <cmd> -NotifyArgs <args>` | Configure failure notifications |
+| test-notify | `test-notify` | Send a test notification |
 
 ### Create options
 
@@ -97,6 +100,21 @@ Run the `list` command and present results in a readable format.
 ### "Pause X" / "Stop X temporarily" / "Disable X"
 Use `disable`, NOT `delete`. Confirm the action. Explain they can re-enable later.
 
+### "Change the schedule for X" / "Reschedule X" / "Update X"
+Use `update -Name <name>` with the fields to change. Only pass fields the user wants changed — all others are preserved.
+If the schedule changes and the job was disabled, it will be auto-re-enabled.
+
+```bash
+powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/scheduler/claude-scheduler.ps1" update -Name "my-job" -Schedule "weekly Monday 09:00"
+```
+
+### "Run this one-time job again"
+Use `update` to set a new `once` schedule. This re-activates the job with a fresh trigger.
+
+```bash
+powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/scheduler/claude-scheduler.ps1" update -Name "one-off-report" -Schedule "once 2026-04-01 14:00"
+```
+
 ### "Run X now" / "Execute X"
 Use the `run` command. Show output in real-time.
 
@@ -104,7 +122,8 @@ Use the `run` command. Show output in real-time.
 Use `logs -Name <name>`. If they want more lines, add `-Tail N`.
 
 ### "Delete X" / "Remove X permanently"
-Use `delete`. Warn that this is permanent (but logs are preserved).
+Use `delete`. Warn that this is permanent and removes all logs too.
+If they want to keep logs for reference, add `-KeepLogs`.
 
 ### "How's X doing?" / "Status of X"
 Use the `status` command for detailed info including next run time.
@@ -125,6 +144,65 @@ powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/schedu
 ```bash
 powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/scheduler/claude-scheduler.ps1" list
 ```
+
+## Failure Notifications
+
+Jobs can send failure notifications to your phone or any service.
+
+### Setup Examples
+
+**WhatsApp (via wacli):**
+```bash
+powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/scheduler/claude-scheduler.ps1" setup-notify -NotifyCommand "wacli" -NotifyArgs "send","--to","<phone>","--message","{{message}}"
+```
+
+**ntfy.sh (free push notifications):**
+```bash
+powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/scheduler/claude-scheduler.ps1" setup-notify -NotifyCommand "curl" -NotifyArgs "-d","{{message}}","ntfy.sh/your-topic"
+```
+
+**Discord webhook:**
+```bash
+powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/scheduler/claude-scheduler.ps1" setup-notify -NotifyCommand "curl" -NotifyArgs "-H","Content-Type: application/json","-d","{\"content\":\"{{message}}\"}","https://discord.com/api/webhooks/..."
+```
+
+### NotifyOn events
+
+| Event | Triggers on |
+|-------|-------------|
+| `job-failure` | Any job exits non-zero |
+| `all-failures` | All failure types |
+
+Default: both `job-failure` and `all-failures`.
+
+Use `-NotifyOn` to customize:
+```bash
+powershell ... setup-notify -NotifyCommand "wacli" -NotifyArgs "..." -NotifyOn "job-failure"
+```
+
+### Testing and managing
+
+```bash
+# Test notifications
+powershell ... test-notify
+
+# Disable without removing config
+powershell ... setup-notify -Disable
+
+# Show current config
+powershell ... setup-notify
+```
+
+### How to handle user requests
+
+**"Notify me when jobs fail" / "Set up WhatsApp notifications"**
+1. Ask what notification method they want (WhatsApp/ntfy/Discord/Telegram/etc.)
+2. Get the required details (phone number, webhook URL, topic name)
+3. Run the `setup-notify` command
+4. Run `test-notify` to verify it works
+
+**"Disable notifications" / "Stop sending me alerts"**
+Use `setup-notify -Disable`.
 
 ## Important Notes
 
