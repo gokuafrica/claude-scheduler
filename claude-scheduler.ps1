@@ -25,7 +25,6 @@ param(
     [string[]]$AllowedTools,
     [string[]]$DisallowedTools,
     [string]$WorkDir,
-    [string]$McpConfig,
     [string]$Effort,
     [int]$LogRetention = 30,
     [string]$AppendSystemPrompt,
@@ -240,7 +239,6 @@ switch ($Command) {
             model                = if ($Model) { $Model } else { 'sonnet' }
             effort               = if ($Effort) { $Effort } else { '' }
             workingDirectory     = if ($WorkDir) { $WorkDir } else { '~' }
-            mcpConfig            = if ($McpConfig) { $McpConfig } else { $null }
             appendSystemPrompt   = if ($AppendSystemPrompt) { $AppendSystemPrompt } else { $null }
             logRetentionDays     = $LogRetention
             noSessionPersistence = $true
@@ -279,13 +277,13 @@ switch ($Command) {
         # Check that at least one updatable field was provided
         $updatableParams = @('Schedule', 'Prompt', 'Description', 'Model', 'MaxBudget',
                              'Effort', 'WorkDir', 'AllowedTools', 'DisallowedTools',
-                             'LogRetention', 'McpConfig', 'AppendSystemPrompt')
+                             'LogRetention', 'AppendSystemPrompt')
         $hasUpdate = $false
         foreach ($p in $updatableParams) {
             if ($PSBoundParameters.ContainsKey($p)) { $hasUpdate = $true; break }
         }
         if (-not $hasUpdate) {
-            Write-Error "No fields to update. Provide at least one of: -Schedule, -Prompt, -Model, -Description, -Effort, -MaxBudget, -WorkDir, -AllowedTools, -DisallowedTools, -LogRetention, -McpConfig, -AppendSystemPrompt"
+            Write-Error "No fields to update. Provide at least one of: -Schedule, -Prompt, -Model, -Description, -Effort, -MaxBudget, -WorkDir, -AllowedTools, -DisallowedTools, -LogRetention, -AppendSystemPrompt"
             exit 1
         }
 
@@ -345,10 +343,6 @@ switch ($Command) {
         if ($PSBoundParameters.ContainsKey('LogRetention')) {
             $changes += "LogRetention: $($job.logRetentionDays) -> $LogRetention days"
             $job | Add-Member -NotePropertyName 'logRetentionDays' -NotePropertyValue $LogRetention -Force
-        }
-        if ($PSBoundParameters.ContainsKey('McpConfig')) {
-            $changes += "McpConfig: updated"
-            $job | Add-Member -NotePropertyName 'mcpConfig' -NotePropertyValue $(if ($McpConfig) { $McpConfig } else { $null }) -Force
         }
         if ($PSBoundParameters.ContainsKey('AppendSystemPrompt')) {
             $changes += "AppendSystemPrompt: updated"

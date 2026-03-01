@@ -234,16 +234,6 @@ AUTONOMOUS SCHEDULED TASK MODE:
         }
     }
 
-    # Optional: MCP config
-    if ($job.PSObject.Properties['mcpConfig'] -and $job.mcpConfig) {
-        $mcpPath = Expand-TildePath $job.mcpConfig
-        if (Test-Path $mcpPath) {
-            $cliArgs += '--mcp-config'
-            $cliArgs += $mcpPath
-        } else {
-            Write-Log "MCP config not found: $mcpPath. Skipping." -IsError
-        }
-    }
 
     # Optional: no session persistence
     if (-not $job.PSObject.Properties['noSessionPersistence'] -or $job.noSessionPersistence -ne $false) {

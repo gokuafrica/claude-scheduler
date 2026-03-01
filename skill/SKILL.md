@@ -61,7 +61,6 @@ powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/schedu
 | -AllowedTools | [] | Restrict to specific tools |
 | -DisallowedTools | [] | Block specific tools |
 | -LogRetention | 30 | Days to keep logs |
-| -McpConfig | null | Path to MCP config JSON |
 | -AppendSystemPrompt | null | Extra system prompt text |
 
 ### Model guidance
@@ -212,4 +211,4 @@ Use `setup-notify -Disable`.
 - `~` in paths is expanded to the user's home directory at runtime
 - Jobs run with `--dangerously-skip-permissions` so they work unattended
 - The runner automatically purges logs older than the retention period
-- If a job needs browser/MCP tools, the user must provide an MCP config
+- Claude Code automatically discovers installed MCP plugins at startup
