@@ -1,6 +1,8 @@
 # Claude Scheduler
 
-Schedule Claude Code CLI to run prompts automatically using Windows Task Scheduler. Think cron jobs for Claude.
+Schedule Claude Code CLI to run prompts automatically. Think cron jobs for Claude.
+
+**Supported platforms:** macOS (launchd) and Windows (Task Scheduler).
 
 ## What it does
 
@@ -29,6 +31,16 @@ Claude Code will clone the repo, read this README, run the installer, and set ev
 
 ## Prerequisites
 
+### macOS
+
+- macOS 10.15+
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
+- Claude Code authenticated (run `claude` once interactively)
+- `jq` installed (`brew install jq`)
+- One-time setup: run `claude --dangerously-skip-permissions` interactively to accept the prompt (required for unattended execution)
+
+### Windows
+
 - Windows 10/11
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
 - Claude Code authenticated (run `claude` once interactively)
@@ -36,6 +48,16 @@ Claude Code will clone the repo, read this README, run the installer, and set ev
 - One-time setup: run `claude --dangerously-skip-permissions` interactively to accept the prompt (required for unattended execution)
 
 ## Manual Install
+
+### macOS
+
+```bash
+git clone https://github.com/gokuafrica/claude-scheduler.git
+cd claude-scheduler
+bash install.sh
+```
+
+### Windows
 
 ```powershell
 git clone https://github.com/gokuafrica/claude-scheduler.git
@@ -61,9 +83,64 @@ Once installed, just talk to Claude:
 | "Show me the logs for my-job" | Displays latest run output |
 | "Delete the test job" | Removes permanently (job + logs) |
 
-The `/claude-scheduler` skill translates your intent into the right commands.
+The `/claude-scheduler` skill translates your intent into the right commands and automatically uses the correct platform syntax.
 
-### From PowerShell
+### From the terminal (macOS)
+
+```bash
+# Create a job
+bash ~/.claude/scheduler/claude-scheduler.sh create \
+  --name "daily-summary" \
+  --prompt "Fetch https://news.ycombinator.com and summarize the top stories to ~/reports/hn.md" \
+  --schedule "daily 09:00" \
+  --model "sonnet" \
+  --effort "high"
+
+# Update schedule (also re-activates one-time jobs)
+bash ~/.claude/scheduler/claude-scheduler.sh update \
+  --name "daily-summary" \
+  --schedule "weekly Monday 09:00"
+
+# Update model and effort (keeps everything else)
+bash ~/.claude/scheduler/claude-scheduler.sh update \
+  --name "daily-summary" \
+  --model "opus" --effort "high"
+
+# List all jobs
+bash ~/.claude/scheduler/claude-scheduler.sh list
+
+# Run a job now
+bash ~/.claude/scheduler/claude-scheduler.sh run --name "daily-summary"
+
+# Pause a job (keeps it, just stops scheduling)
+bash ~/.claude/scheduler/claude-scheduler.sh disable --name "daily-summary"
+
+# Resume a job
+bash ~/.claude/scheduler/claude-scheduler.sh enable --name "daily-summary"
+
+# View latest log
+bash ~/.claude/scheduler/claude-scheduler.sh logs --name "daily-summary"
+
+# Detailed status
+bash ~/.claude/scheduler/claude-scheduler.sh status --name "daily-summary"
+
+# Delete a job permanently (removes agent, JSON, and logs)
+bash ~/.claude/scheduler/claude-scheduler.sh delete --name "daily-summary"
+
+# Delete but keep logs for reference
+bash ~/.claude/scheduler/claude-scheduler.sh delete --name "daily-summary" --keep-logs
+
+# Purge logs older than 7 days
+bash ~/.claude/scheduler/claude-scheduler.sh purge-logs --days 7
+```
+
+**Tip**: Add an alias to your `~/.zshrc` or `~/.bashrc` for convenience:
+```bash
+alias cs='bash ~/.claude/scheduler/claude-scheduler.sh'
+# Then: cs list, cs run --name "daily-summary", etc.
+```
+
+### From PowerShell (Windows)
 
 ```powershell
 # Create a job
@@ -133,6 +210,25 @@ Set-Alias -Name cs -Value "$env:USERPROFILE\.claude\scheduler\claude-scheduler.p
 
 ## Job Options
 
+### macOS (`--kebab-case`)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--name` | (required) | Job name (letters, numbers, hyphens, underscores) |
+| `--prompt` | (required) | The prompt Claude will execute |
+| `--schedule` | (required) | When to run (see formats above) |
+| `--description` | | Human-readable description |
+| `--model` | `sonnet` | Claude model: `sonnet`, `opus`, `haiku` |
+| `--max-budget` | | Max USD per run. Only passed to Claude CLI if explicitly set |
+| `--effort` | | `low`, `medium`, or `high` |
+| `--work-dir` | `~` | Working directory (`~` = user home) |
+| `--log-retention` | `30` | Days to keep log files before auto-purge |
+| `--allowed-tools` | | Restrict to specific tools (e.g., `Read,WebFetch`) |
+| `--disallowed-tools` | | Block specific tools |
+| `--append-system-prompt` | | Extra instructions added to the system prompt |
+
+### Windows (`-PascalCase`)
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `-Name` | (required) | Job name (letters, numbers, hyphens, underscores) |
@@ -153,7 +249,27 @@ Set-Alias -Name cs -Value "$env:USERPROFILE\.claude\scheduler\claude-scheduler.p
 
 Get notified on your phone when a scheduled job fails.
 
-### Setup
+### Setup (macOS)
+
+```bash
+# ntfy.sh (free push notifications — no account needed)
+bash ~/.claude/scheduler/claude-scheduler.sh setup-notify \
+  --notify-command "curl" \
+  --notify-args "-d,{{message}},ntfy.sh/your-topic"
+
+# WhatsApp (via wacli)
+bash ~/.claude/scheduler/claude-scheduler.sh setup-notify \
+  --notify-command "wacli" \
+  --notify-args "send,--to,<phone>,--message,{{message}}"
+
+# Test it
+bash ~/.claude/scheduler/claude-scheduler.sh test-notify
+
+# Disable
+bash ~/.claude/scheduler/claude-scheduler.sh setup-notify --disable
+```
+
+### Setup (Windows)
 
 ```powershell
 # WhatsApp (via wacli)
@@ -177,6 +293,23 @@ The `{{message}}` placeholder is replaced with a description of which job failed
 
 ## How It Works
 
+### macOS
+
+1. **`create`** writes a job definition JSON to `~/.claude/scheduler/jobs/` and generates a launchd plist at `~/Library/LaunchAgents/com.claude-scheduler.<name>.plist`, then loads it via `launchctl`.
+
+2. When the schedule triggers, launchd runs **`runner.sh`**, which:
+   - Reads the job JSON
+   - Purges logs older than the retention period
+   - Discovers the Claude CLI on PATH (handles launchd's minimal environment)
+   - Injects an "autonomous mode" system prompt via `--append-system-prompt` telling Claude it's running unattended
+   - Executes `claude -p` with `--dangerously-skip-permissions`, `--output-format json`, and all configured flags
+   - Captures output to a timestamped log file
+   - Updates the job JSON with last run time, status, and duration
+
+3. Jobs run as Launch Agents under your user account (runs when you're logged in, no admin privileges needed).
+
+### Windows
+
 1. **`create`** writes a job definition JSON to `~/.claude/scheduler/jobs/` and registers a Windows Task Scheduler entry under `\ClaudeScheduler\`.
 
 2. When the schedule triggers, Task Scheduler runs **`runner.ps1`**, which:
@@ -189,7 +322,26 @@ The `{{message}}` placeholder is replaced with a description of which job failed
 
 3. Jobs run under your user account with Interactive logon (runs when you're logged in, no password stored).
 
+### Locked screen & sleep behavior (both platforms)
+
+- Scheduled jobs run normally when your screen is locked (locking the screen keeps your session active).
+- Jobs will **not** run while your computer is asleep, but will catch up when it wakes.
+- Jobs require you to be logged in (locking the screen is fine; logging out stops jobs).
+
 ## File Locations
+
+### macOS
+
+| What | Where |
+|------|-------|
+| Management CLI | `~/.claude/scheduler/claude-scheduler.sh` |
+| Runner | `~/.claude/scheduler/runner.sh` |
+| Job definitions | `~/.claude/scheduler/jobs/*.json` |
+| Logs | `~/.claude/scheduler/logs/{job-name}/*.log` |
+| Skill | `~/.claude/skills/claude-scheduler/SKILL.md` |
+| launchd agents | `~/Library/LaunchAgents/com.claude-scheduler.*.plist` |
+
+### Windows
 
 | What | Where |
 |------|-------|
@@ -209,6 +361,16 @@ For a detailed account of what we tried and what we learned, see [CHROME-EXTENSI
 We'll revisit this when the extension stabilizes.
 
 ## Uninstall
+
+### macOS
+
+```bash
+bash uninstall.sh
+```
+
+Removes launchd agents, scripts, and skill. Use `--keep-logs` or `--keep-jobs` to preserve data.
+
+### Windows
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File uninstall.ps1
