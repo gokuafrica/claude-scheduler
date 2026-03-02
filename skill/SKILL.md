@@ -1,8 +1,8 @@
 ---
 name: claude-scheduler
 description: >
-  Manages scheduled Claude Code jobs using the OS native scheduler. Use this
-  skill when the user wants to: create a scheduled task
+  Manages scheduled Claude Code jobs using launchd on macOS and Task Scheduler
+  on Windows. Use this skill when the user wants to: create a scheduled task
   for Claude, list their scheduled jobs, enable or disable a job, run a job
   manually, view job logs, delete a scheduled job, check job status, or manage
   log retention. Also triggers for: "schedule this to run daily", "set up a

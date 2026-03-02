@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Scheduler Installer - One-command setup for scheduled Claude Code jobs.
+# Claude Scheduler Installer (macOS) - One-command setup for scheduled Claude Code jobs.
 #
 # Copies scheduler scripts to ~/.claude/scheduler/ and the skill to ~/.claude/skills/.
 # Idempotent - safe to re-run. Preserves existing jobs and logs.
@@ -15,9 +15,9 @@ fi
 
 # --- Banner ---
 echo ''
-echo '  =============================='
-echo '  Claude Scheduler - Installer'
-echo '  =============================='
+echo '  =================================='
+echo '  Claude Scheduler - macOS Installer'
+echo '  =================================='
 echo ''
 
 # --- Paths ---
