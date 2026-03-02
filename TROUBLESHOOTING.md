@@ -4,9 +4,45 @@ Common issues with Claude Scheduler and how to fix them. If you're an AI agent h
 
 ---
 
-## Task Scheduler Issues
+## Scheduling Issues
 
 ### Job never runs / schedule not triggering
+
+#### macOS
+
+**Diagnostic steps**:
+
+1. **Is the launchd agent loaded?**
+   ```bash
+   launchctl print gui/$(id -u)/com.claude-scheduler.<job-name> 2>&1 | head -5
+   ```
+   If it says "Could not find service", the plist isn't loaded. Re-enable the job:
+   ```bash
+   bash ~/.claude/scheduler/claude-scheduler.sh enable --name "job-name"
+   ```
+
+2. **Is the plist file present?**
+   ```bash
+   ls ~/Library/LaunchAgents/com.claude-scheduler.*.plist
+   ```
+   If missing, the job may need to be re-created.
+
+3. **Is the computer awake at trigger time?**
+   Jobs only fire when the user is logged in and the system is awake. If the computer is asleep at 9:00 AM, a `daily 09:00` job won't fire until the system wakes. The login hook will recalculate the schedule on next login.
+
+4. **Was the system rebooted?**
+   Daily/weekly jobs use `StartInterval` which is relative to plist load time. The login hook (`com.user.claude-scheduler.login-regen`) should recalculate all intervals on login. Verify it's loaded:
+   ```bash
+   launchctl print gui/$(id -u)/com.user.claude-scheduler.login-regen 2>&1 | head -3
+   ```
+
+5. **Check launchd stderr logs**:
+   ```bash
+   cat ~/Library/LaunchAgents/com.claude-scheduler.<job-name>.plist | grep -A1 StandardErrorPath
+   # Then read that file
+   ```
+
+#### Windows
 
 **Diagnostic steps**:
 
@@ -37,6 +73,18 @@ Common issues with Claude Scheduler and how to fix them. If you're an AI agent h
 
 ### "Claude CLI not found" during job execution
 
+#### macOS
+
+Launchd runs with a minimal environment. The runner adds common paths (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, etc.) and searches for the Claude desktop app, but if Claude is installed in an unusual location:
+
+```bash
+which claude
+```
+
+Ensure that directory is in a standard location the runner checks, or add it to the PATH in your shell profile.
+
+#### Windows
+
 The Task Scheduler environment may not have the same PATH as your interactive shell.
 
 **Fix**: The runner automatically adds npm and Node.js directories to PATH. If Claude is installed elsewhere, check:
@@ -57,32 +105,55 @@ Type "yes" when prompted. This only needs to be done once per machine.
 
 ## Job Definition Issues
 
-### Job JSON exists but Task Scheduler entry is missing
+### Job JSON exists but scheduler entry is missing
 
-This happens when Task Scheduler entries are deleted outside of claude-scheduler (e.g., via `taskschd.msc`).
+This happens when launchd agents (macOS) or Task Scheduler entries (Windows) are removed outside of claude-scheduler.
 
 **Fix**: Delete and re-create the job:
-```powershell
-# Remove the orphaned JSON
-Remove-Item "$env:USERPROFILE\.claude\scheduler\jobs\job-name.json"
 
-# Re-create
+**macOS:**
+```bash
+rm ~/.claude/scheduler/jobs/job-name.json
+bash ~/.claude/scheduler/claude-scheduler.sh create --name "job-name" --prompt "..." --schedule "..."
+```
+
+**Windows:**
+```powershell
+Remove-Item "$env:USERPROFILE\.claude\scheduler\jobs\job-name.json"
 & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" create -Name "job-name" -Prompt "..." -Schedule "..."
 ```
 
 ### Job shows "failed" but no useful error in logs
 
-1. Check the full log file for details:
+1. Check the full log file:
+
+   **macOS:**
+   ```bash
+   bash ~/.claude/scheduler/claude-scheduler.sh logs --name "job-name" --tail 200
+   ```
+   **Windows:**
    ```powershell
    & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" logs -Name "job-name" -Tail 200
    ```
 
 2. Try running the job manually to see real-time output:
+
+   **macOS:**
+   ```bash
+   bash ~/.claude/scheduler/claude-scheduler.sh run --name "job-name"
+   ```
+   **Windows:**
    ```powershell
    & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" run -Name "job-name"
    ```
 
 3. Check the job JSON for the `lastRunStatus` field:
+
+   **macOS:**
+   ```bash
+   jq '.lastRunStatus, .lastRunAt, .lastRunDurationSec' ~/.claude/scheduler/jobs/job-name.json
+   ```
+   **Windows:**
    ```powershell
    Get-Content "$env:USERPROFILE\.claude\scheduler\jobs\job-name.json" | ConvertFrom-Json | Select-Object lastRunStatus, lastRunAt, lastRunDurationSec
    ```
@@ -96,20 +167,29 @@ Remove-Item "$env:USERPROFILE\.claude\scheduler\jobs\job-name.json"
 **Diagnostic steps**:
 
 1. **Is notification config present and enabled?**
+
+   **macOS:**
+   ```bash
+   cat ~/.claude/scheduler/notify.json
+   ```
+   **Windows:**
    ```powershell
    Get-Content "$env:USERPROFILE\.claude\scheduler\notify.json"
    ```
    Check that `enabled` is `true` and `notifyOn` includes the relevant event type.
 
 2. **Test manually**:
+
+   **macOS:**
+   ```bash
+   bash ~/.claude/scheduler/claude-scheduler.sh test-notify
+   ```
+   **Windows:**
    ```powershell
    & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" test-notify
    ```
 
-3. **Check the job logs**: Search for "Notification sent" or "Failed to send notification" in the latest log:
-   ```powershell
-   & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" logs -Name "job-name" -Tail 100
-   ```
+3. **Check the job logs**: Search for "Notification sent" or "Failed to send notification" in the latest log.
 
 4. **Common issues**:
    - `{{message}}` placeholder missing from args — the notification fires but with no message content
@@ -126,9 +206,18 @@ Remove-Item "$env:USERPROFILE\.claude\scheduler\jobs\job-name.json"
 
 ## Installation Issues
 
-### install.ps1 reports "MISSING" for a file
+### Installer reports "MISSING" for a file
 
-The installer expects `claude-scheduler.ps1`, `runner.ps1`, and `skill/SKILL.md` in the same directory. Ensure you cloned the full repository:
+The installer expects the scripts and `skill/SKILL.md` in the same directory. Ensure you cloned the full repository:
+
+**macOS:**
+```bash
+git clone https://github.com/gokuafrica/claude-scheduler.git
+cd claude-scheduler
+bash install.sh
+```
+
+**Windows:**
 ```powershell
 git clone https://github.com/gokuafrica/claude-scheduler.git
 cd claude-scheduler
@@ -137,7 +226,14 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 ### Installed files are out of date
 
-Re-run the installer with `-Force` to overwrite all files:
+Re-run the installer with the force flag to overwrite all files:
+
+**macOS:**
+```bash
+bash install.sh --force
+```
+
+**Windows:**
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1 -Force
 ```
@@ -148,9 +244,10 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Force
 
 | Symptom | Likely cause | Quick fix |
 |---------|-------------|-----------|
-| Job never runs | Computer asleep at trigger time or task disabled | Check Task Scheduler state, enable task |
-| `error:claude-not-found` | PATH not set in Task Scheduler context | Check system PATH includes npm/node dirs |
+| Job never runs | Computer asleep at trigger time or agent/task disabled | Check scheduler state, enable job |
+| `error:claude-not-found` | PATH not set in launchd/Task Scheduler context | Check system PATH includes Claude CLI |
 | `failed:1` | Claude CLI ran but returned error | Check logs for Claude's error output |
 | No notification received | notify.json missing or disabled | Run `test-notify` to diagnose |
-| Job JSON exists but not in Task Scheduler | Entry deleted outside claude-scheduler | Delete JSON and re-create job |
+| Job JSON exists but not in scheduler | Entry deleted outside claude-scheduler | Delete JSON and re-create job |
 | `skipDangerousModePermissionPrompt` warning | One-time acceptance not done | Run `claude --dangerously-skip-permissions` once |
+| Jobs wrong time after reboot (macOS) | Login hook not regenerating plists | Check `com.user.claude-scheduler.login-regen` is loaded |

@@ -233,6 +233,7 @@ EOF
     fi
 
     # hourly — StartInterval = 3600 (static, no drift issue)
+    # Note: fires every 3600s from load time, NOT at the top of each clock hour.
     if [[ "$schedule" == "hourly" ]]; then
         cat << EOF
     <key>StartInterval</key>
@@ -290,9 +291,7 @@ EOF
             return 1
         fi
         if [[ $delta -lt 120 ]]; then
-            echo "Warning: Scheduled time is only ${delta}s away. launchd may not" >&2
-            echo "         have enough time to register the trigger reliably." >&2
-            echo "         Consider at least 2 minutes of lead time, or use 'run' instead." >&2
+            echo "Note: Job will fire in ${delta}s. For immediate execution, use 'run' instead." >&2
         fi
         cat << EOF
     <key>StartInterval</key>
@@ -426,6 +425,82 @@ kickstart_job() {
     launchctl kickstart "gui/${uid}/${label}" 2>/dev/null
 }
 
+# --- Login hook: regenerate all daily/weekly plists on user login ---
+# Because StartInterval is relative to plist load time, stale values after
+# a reboot would cause jobs to fire at the wrong time. This login hook
+# ensures fresh deltas are computed every time the user logs in.
+
+LOGIN_HOOK_LABEL="${LABEL_PREFIX}.login-regen"
+
+get_login_hook_plist_path() {
+    echo "${LAUNCH_AGENTS_DIR}/${LOGIN_HOOK_LABEL}.plist"
+}
+
+install_login_hook() {
+    local plist_path
+    plist_path=$(get_login_hook_plist_path)
+    if [[ -f "$plist_path" ]]; then
+        return 0  # already installed
+    fi
+
+    local scheduler_path="$SCHEDULER_DIR/claude-scheduler.sh"
+    mkdir -p "$LOGS_DIR"
+
+    cat > "$plist_path" << HOOK_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${LOGIN_HOOK_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${scheduler_path}</string>
+        <string>_regen_all</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>${LOGS_DIR}/login-regen-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>${LOGS_DIR}/login-regen-stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>${HOME}</string>
+        <key>PATH</key>
+        <string>${HOME}/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
+HOOK_EOF
+
+    if ! plutil -lint "$plist_path" >/dev/null 2>&1; then
+        echo "Warning: Login hook plist is invalid." >&2
+        rm -f "$plist_path"
+        return 1
+    fi
+
+    local uid
+    uid=$(id -u)
+    launchctl bootstrap "gui/${uid}" "$plist_path" 2>/dev/null || true
+    return 0
+}
+
+uninstall_login_hook() {
+    local plist_path
+    plist_path=$(get_login_hook_plist_path)
+    if [[ ! -f "$plist_path" ]]; then
+        return 0
+    fi
+
+    local uid
+    uid=$(id -u)
+    launchctl bootout "gui/${uid}/${LOGIN_HOOK_LABEL}" 2>/dev/null || true
+    rm -f "$plist_path"
+}
+
 # --- Check if a flag was explicitly provided ---
 is_flag_provided() {
     local flag="$1"
@@ -461,9 +536,13 @@ cmd_create() {
         exit 1
     fi
 
-    # Validate schedule before creating anything
+    # Validate schedule before creating anything (suppress notes, show errors)
     echo "Parsing schedule: $SCHEDULE"
-    parse_schedule_to_plist_keys "$SCHEDULE" >/dev/null || exit 1
+    local _validate_err
+    if ! _validate_err=$(parse_schedule_to_plist_keys "$SCHEDULE" 2>&1 >/dev/null); then
+        echo "$_validate_err" >&2
+        exit 1
+    fi
 
     # Build max budget value
     local budget_val="null"
@@ -509,6 +588,9 @@ cmd_create() {
         exit 1
     fi
     load_job "$NAME"
+
+    # Ensure login hook is installed (regenerates daily/weekly plists on login)
+    install_login_hook 2>/dev/null || true
 
     echo ""
     echo "Job '$NAME' created successfully!"
@@ -602,10 +684,14 @@ cmd_update() {
         exit 1
     fi
 
-    # If schedule is being changed, validate it first
+    # If schedule is being changed, validate it first (suppress notes, show errors)
     if is_flag_provided "schedule"; then
         echo "Parsing schedule: $SCHEDULE"
-        parse_schedule_to_plist_keys "$SCHEDULE" >/dev/null || exit 1
+        local _validate_err
+        if ! _validate_err=$(parse_schedule_to_plist_keys "$SCHEDULE" 2>&1 >/dev/null); then
+            echo "$_validate_err" >&2
+            exit 1
+        fi
     fi
 
     # Load existing job and apply updates
@@ -748,6 +834,9 @@ cmd_enable() {
     generate_plist "$NAME" "$sched" >/dev/null 2>&1 || true
     enable_job "$NAME"
 
+    # Ensure login hook is installed
+    install_login_hook 2>/dev/null || true
+
     echo "Enabled job '$NAME'"
 }
 
@@ -858,6 +947,13 @@ cmd_delete() {
 
     # Remove lockfile if present
     rm -f "$SCHEDULER_DIR/.lock-$NAME"
+
+    # Remove login hook if no jobs remain
+    local remaining
+    remaining=$(find "$JOBS_DIR" -name "*.json" -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$remaining" -eq 0 ]]; then
+        uninstall_login_hook 2>/dev/null || true
+    fi
 
     echo "Deleted job '$NAME'."
 }
@@ -1115,38 +1211,76 @@ cmd_test_notify() {
 }
 
 cmd_regen_plist() {
-    # Internal command called by runner.sh after a recurring job completes.
+    # Internal command called by runner.sh after a recurring job completes,
+    # and by the login-hook agent on user login.
     # Recalculates StartInterval delta and reloads the plist without touching
     # lastRunAt / lastRunStatus in the job JSON.
-    if ! validate_job_name "$NAME"; then exit 1; fi
+    if ! validate_job_name "$NAME"; then return 1; fi
     local job_file="$JOBS_DIR/$NAME.json"
     if [[ ! -f "$job_file" ]]; then
         echo "Error: Job '$NAME' not found." >&2
-        exit 1
+        return 1
     fi
 
     local enabled sched
     enabled=$(jq -r '.enabled // true' "$job_file")
     if [[ "$enabled" == "false" ]]; then
         echo "Job '$NAME' is disabled — skipping plist regeneration."
-        exit 0
+        return 0
     fi
 
     sched=$(jq -r '.schedule // ""' "$job_file")
     if ! echo "$sched" | grep -qE '^(daily|weekly) '; then
         echo "Job '$NAME' schedule '$sched' does not need plist regeneration."
-        exit 0
+        return 0
     fi
 
     unload_job "$NAME"
     if ! generate_plist "$NAME" "$sched"; then
         echo "Error: Failed to regenerate plist for '$NAME'." >&2
-        exit 1
+        return 1
     fi
     load_job "$NAME"
     local delta
     delta=$(calc_start_interval "$sched") || delta="?"
     echo "Plist regenerated for '$NAME' (schedule: $sched, next interval: ${delta}s)"
+}
+
+cmd_regen_all() {
+    # Internal command called by the login-hook LaunchAgent on user login.
+    # Iterates all job JSON files and regenerates plists for enabled daily/weekly jobs
+    # so that StartInterval deltas are fresh after a reboot.
+    echo "Login-hook: regenerating plists for all recurring jobs..."
+    local job_files count=0 errors=0
+    job_files=$(find "$JOBS_DIR" -name "*.json" -maxdepth 1 2>/dev/null | sort)
+
+    if [[ -z "$job_files" ]]; then
+        echo "No jobs found. Nothing to regenerate."
+        return 0
+    fi
+
+    while IFS= read -r job_file; do
+        [[ -z "$job_file" ]] && continue
+        local jname enabled sched
+        jname=$(jq -r '.name // empty' "$job_file" 2>/dev/null) || continue
+        enabled=$(jq -r '.enabled // true' "$job_file" 2>/dev/null)
+        sched=$(jq -r '.schedule // ""' "$job_file" 2>/dev/null)
+
+        if [[ "$enabled" == "false" ]]; then continue; fi
+        if ! echo "$sched" | grep -qE '^(daily|weekly) '; then continue; fi
+
+        echo "  Regenerating: $jname ($sched)"
+        NAME="$jname"
+        if cmd_regen_plist; then
+            count=$((count + 1))
+        else
+            errors=$((errors + 1))
+            echo "  Warning: failed to regenerate plist for $jname" >&2
+        fi
+    done <<< "$job_files"
+
+    echo "Done: $count plists regenerated, $errors errors."
+    return 0
 }
 
 cmd_usage() {
@@ -1198,5 +1332,6 @@ case "$COMMAND" in
     setup-notify) cmd_setup_notify ;;
     test-notify)  cmd_test_notify ;;
     _regen_plist) cmd_regen_plist ;;
+    _regen_all)   cmd_regen_all ;;
     *)            cmd_usage ;;
 esac

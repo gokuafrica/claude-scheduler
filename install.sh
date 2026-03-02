@@ -30,7 +30,7 @@ SKILL_DIR="$CLAUDE_DIR/skills/claude-scheduler"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 
 # --- Step 1: Prerequisites ---
-echo '[1/6] Checking prerequisites...'
+echo '[1/7] Checking prerequisites...'
 
 # Bash version (informational)
 echo "  Bash: $BASH_VERSION"
@@ -77,7 +77,7 @@ fi
 echo ''
 
 # --- Step 2: Create directories ---
-echo '[2/6] Creating directories...'
+echo '[2/7] Creating directories...'
 for dir in "$SCHEDULER_DIR" "$JOBS_DIR" "$LOGS_DIR" "$SKILL_DIR" "$LAUNCH_AGENTS_DIR"; do
     if [[ ! -d "$dir" ]]; then
         mkdir -p "$dir"
@@ -89,7 +89,7 @@ done
 echo ''
 
 # --- Step 3: Copy scripts ---
-echo '[3/6] Copying scripts...'
+echo '[3/7] Copying scripts...'
 FILES_TO_COPY=("claude-scheduler.sh" "runner.sh")
 for file in "${FILES_TO_COPY[@]}"; do
     src="$SOURCE_DIR/$file"
@@ -117,7 +117,7 @@ done
 echo ''
 
 # --- Step 4: Install skill ---
-echo '[4/6] Installing skill...'
+echo '[4/7] Installing skill...'
 skill_src="$SOURCE_DIR/skill/SKILL.md"
 skill_dest="$SKILL_DIR/SKILL.md"
 
@@ -141,18 +141,28 @@ fi
 echo ''
 
 # --- Step 5: Set file permissions ---
-echo '[5/6] Setting file permissions...'
+echo '[5/7] Setting file permissions...'
 chmod +x "$SCHEDULER_DIR/claude-scheduler.sh" 2>/dev/null && echo "  +x: claude-scheduler.sh" || true
 chmod +x "$SCHEDULER_DIR/runner.sh" 2>/dev/null && echo "  +x: runner.sh" || true
 echo ''
 
 # --- Step 6: Verify LaunchAgents directory ---
-echo '[6/6] Verifying LaunchAgents directory...'
+echo '[6/7] Verifying LaunchAgents directory...'
 if [[ -d "$LAUNCH_AGENTS_DIR" ]]; then
     echo "  ~/Library/LaunchAgents/ exists."
 else
     mkdir -p "$LAUNCH_AGENTS_DIR"
     echo "  Created: ~/Library/LaunchAgents/"
+fi
+echo ''
+
+# --- Step 7: Install login hook ---
+echo '[7/7] Installing login hook (regenerates plists after reboot)...'
+if bash "$SCHEDULER_DIR/claude-scheduler.sh" _regen_all >/dev/null 2>&1; then
+    echo '  Login hook will be installed automatically when you create your first job.'
+    echo '  OK'
+else
+    echo '  Note: Login hook setup will happen when you create your first job.'
 fi
 echo ''
 

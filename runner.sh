@@ -121,7 +121,7 @@ cleanup() {
             write_log "INFO" "Queuing plist regeneration for next occurrence of: $sched_for_regen"
             # sleep 5: gives launchd time to process this runner's exit before
             # the scheduler script calls bootout + bootstrap on the same label.
-            (sleep 5 && bash "$scheduler_script" _regen_plist --name "$JOB_NAME" >> "$LOG_FILE" 2>&1) &
+            (sleep 5 && bash "$scheduler_script" _regen_plist --name "$JOB_NAME" >> "${LOG_FILE:-/dev/null}" 2>&1) &
             disown $! 2>/dev/null || true
         else
             write_log "ERROR" "Cannot regenerate plist: scheduler not found at $scheduler_script"

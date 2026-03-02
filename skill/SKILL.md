@@ -121,7 +121,36 @@ powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/schedu
 | `startup` | `startup` | At system boot |
 | `logon` | `logon` | At user login |
 
+## Notification Onboarding
+
+**After creating a job**, check if failure notifications are configured:
+
+**macOS:** Check if `~/.claude/scheduler/notify.json` exists.
+**Windows:** Check if `$env:USERPROFILE\.claude\scheduler\notify.json` exists.
+
+If `notify.json` does NOT exist, proactively ask the user:
+
+> Would you like to set up failure notifications? If a scheduled job fails, you can get alerted on your phone via:
+> - **ntfy.sh** (free, no account needed — just install the ntfy app and pick a topic)
+> - **WhatsApp** (via wacli)
+> - **Any CLI tool** that can send messages
+>
+> This is optional but recommended so you know when jobs need attention.
+
+If the user wants notifications, walk them through `setup-notify` and then run `test-notify` to verify.
+
+If they decline, respect that and don't ask again.
+
 ## How to Handle User Requests
+
+### "Notify me when jobs fail" / "Set up notifications"
+1. Ask what notification method they want (ntfy.sh/WhatsApp/Discord/Telegram/etc.)
+2. Get the required details (topic name, phone number, webhook URL)
+3. Run the `setup-notify` command with the right arguments
+4. Run `test-notify` to verify it works
+
+### "Disable notifications" / "Stop sending me alerts"
+Use `setup-notify --disable` (macOS) or `setup-notify -Disable` (Windows).
 
 ### "Schedule X to run at Y"
 1. Extract the prompt (what to run)
@@ -130,6 +159,7 @@ powershell -ExecutionPolicy Bypass -NoProfile -File "$USERPROFILE/.claude/schedu
 4. Choose reasonable defaults: model=sonnet, effort based on complexity
 5. Run the create command
 6. Show the result and explain how to manage it
+7. **Check for notification onboarding** (see above)
 
 ### "What jobs do I have?" / "List my scheduled tasks"
 Run the `list` command and present results in a readable format.
