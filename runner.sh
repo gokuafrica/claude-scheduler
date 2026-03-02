@@ -105,6 +105,28 @@ cleanup() {
         fi
         send_failure_notification "$JOB_NAME" "Runner crashed with exit code $exit_code" || true
     fi
+
+    # --- Finally: regenerate plist for next occurrence (daily/weekly only) ---
+    # Runs regardless of job success or failure — like a finally block.
+    # Spawned as a background process so it starts after this runner fully exits,
+    # allowing launchd to cleanly deregister the current service before the
+    # scheduler script attempts bootout + bootstrap for the next interval.
+    local sched_for_regen=""
+    if [[ -f "$JOB_FILE" ]] && command -v jq &>/dev/null; then
+        sched_for_regen=$(jq -r '.schedule // ""' "$JOB_FILE" 2>/dev/null || true)
+    fi
+    if echo "$sched_for_regen" | grep -qE '^(daily|weekly) '; then
+        local scheduler_script="$SCHEDULER_DIR/claude-scheduler.sh"
+        if [[ -f "$scheduler_script" ]]; then
+            write_log "INFO" "Queuing plist regeneration for next occurrence of: $sched_for_regen"
+            # sleep 5: gives launchd time to process this runner's exit before
+            # the scheduler script calls bootout + bootstrap on the same label.
+            (sleep 5 && bash "$scheduler_script" _regen_plist --name "$JOB_NAME" >> "$LOG_FILE" 2>&1) &
+            disown $! 2>/dev/null || true
+        else
+            write_log "ERROR" "Cannot regenerate plist: scheduler not found at $scheduler_script"
+        fi
+    fi
 }
 trap cleanup EXIT
 

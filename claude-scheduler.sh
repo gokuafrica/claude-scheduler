@@ -157,60 +157,86 @@ day_name_to_number() {
     esac
 }
 
-# --- Parse schedule string to plist XML fragment ---
-parse_schedule_to_plist_keys() {
+# --- Helper: calculate StartInterval delta for a daily or weekly schedule ---
+# Prints the number of seconds until the next occurrence of the given schedule.
+calc_start_interval() {
     local schedule="$1"
+    local now_epoch today_midnight hour minute delta
+
+    now_epoch=$(date '+%s')
+    today_midnight=$(date -j -f "%Y-%m-%d %H:%M:%S" "$(date '+%Y-%m-%d') 00:00:00" '+%s' 2>/dev/null) || {
+        echo "Error: Could not compute today's midnight epoch" >&2
+        return 1
+    }
 
     # daily HH:MM
     if echo "$schedule" | grep -qE '^daily [0-9]{1,2}:[0-9]{2}$'; then
-        local hour minute
         hour=$(echo "$schedule" | sed -E 's/^daily ([0-9]{1,2}):[0-9]{2}$/\1/')
         minute=$(echo "$schedule" | sed -E 's/^daily [0-9]{1,2}:([0-9]{2})$/\1/')
-        hour=$((10#$hour))
-        minute=$((10#$minute))
-        cat << EOF
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>${hour}</integer>
-        <key>Minute</key>
-        <integer>${minute}</integer>
-    </dict>
-EOF
+        hour=$((10#$hour)); minute=$((10#$minute))
+        local target=$((today_midnight + hour * 3600 + minute * 60))
+        if [[ $target -le $now_epoch ]]; then target=$((target + 86400)); fi
+        echo $((target - now_epoch))
         return 0
     fi
 
     # weekly DAY HH:MM
     if echo "$schedule" | grep -qiE '^weekly [a-z]+ [0-9]{1,2}:[0-9]{2}$'; then
-        local day_name hour minute weekday
+        local day_name time_part weekday current_weekday days_until
         day_name=$(echo "$schedule" | awk '{print $2}')
-        hour=$(echo "$schedule" | sed -E 's/^weekly [a-zA-Z]+ ([0-9]{1,2}):[0-9]{2}$/\1/')
-        minute=$(echo "$schedule" | sed -E 's/^weekly [a-zA-Z]+ [0-9]{1,2}:([0-9]{2})$/\1/')
-        hour=$((10#$hour))
-        minute=$((10#$minute))
+        time_part=$(echo "$schedule" | awk '{print $3}')
+        hour=$(echo "$time_part" | cut -d: -f1)
+        minute=$(echo "$time_part" | cut -d: -f2)
+        hour=$((10#$hour)); minute=$((10#$minute))
         weekday=$(day_name_to_number "$day_name") || return 1
+        current_weekday=$(date '+%w')
+        days_until=$(( (weekday - current_weekday + 7) % 7 ))
+        local target=$((today_midnight + days_until * 86400 + hour * 3600 + minute * 60))
+        if [[ $days_until -eq 0 && $target -le $now_epoch ]]; then
+            target=$((target + 7 * 86400))
+        fi
+        echo $((target - now_epoch))
+        return 0
+    fi
+
+    echo "Error: calc_start_interval called with unsupported schedule: $schedule" >&2
+    return 1
+}
+
+# --- Parse schedule string to plist XML fragment ---
+parse_schedule_to_plist_keys() {
+    local schedule="$1"
+
+    # daily HH:MM — StartInterval = seconds until next HH:MM
+    if echo "$schedule" | grep -qE '^daily [0-9]{1,2}:[0-9]{2}$'; then
+        local delta
+        delta=$(calc_start_interval "$schedule") || return 1
         cat << EOF
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Weekday</key>
-        <integer>${weekday}</integer>
-        <key>Hour</key>
-        <integer>${hour}</integer>
-        <key>Minute</key>
-        <integer>${minute}</integer>
-    </dict>
+    <key>StartInterval</key>
+    <integer>${delta}</integer>
 EOF
         return 0
     fi
 
-    # hourly
+    # weekly DAY HH:MM — StartInterval = seconds until next DAY at HH:MM
+    if echo "$schedule" | grep -qiE '^weekly [a-z]+ [0-9]{1,2}:[0-9]{2}$'; then
+        local day_name
+        day_name=$(echo "$schedule" | awk '{print $2}')
+        day_name_to_number "$day_name" >/dev/null || return 1
+        local delta
+        delta=$(calc_start_interval "$schedule") || return 1
+        cat << EOF
+    <key>StartInterval</key>
+    <integer>${delta}</integer>
+EOF
+        return 0
+    fi
+
+    # hourly — StartInterval = 3600 (static, no drift issue)
     if [[ "$schedule" == "hourly" ]]; then
         cat << EOF
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
+    <key>StartInterval</key>
+    <integer>3600</integer>
 EOF
         return 0
     fi
@@ -247,30 +273,30 @@ EOF
         return 0
     fi
 
-    # once YYYY-MM-DD HH:MM
+    # once YYYY-MM-DD HH:MM — StartInterval = seconds until target (validated)
     if echo "$schedule" | grep -qE '^once [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{1,2}:[0-9]{2}$'; then
-        local date_part time_part month day hour minute
+        local date_part time_part target_epoch now_epoch delta
         date_part=$(echo "$schedule" | awk '{print $2}')
         time_part=$(echo "$schedule" | awk '{print $3}')
-        month=$(echo "$date_part" | cut -d- -f2)
-        day=$(echo "$date_part" | cut -d- -f3)
-        hour=$(echo "$time_part" | cut -d: -f1)
-        minute=$(echo "$time_part" | cut -d: -f2)
-        # Strip leading zeros
-        month=$((10#$month)); day=$((10#$day))
-        hour=$((10#$hour)); minute=$((10#$minute))
+        target_epoch=$(date -j -f "%Y-%m-%d %H:%M" "$date_part $time_part" '+%s' 2>/dev/null) || {
+            echo "Error: Could not parse date/time: $date_part $time_part" >&2
+            return 1
+        }
+        now_epoch=$(date '+%s')
+        delta=$((target_epoch - now_epoch))
+        if [[ $delta -le 0 ]]; then
+            echo "Error: Scheduled time '$date_part $time_part' is in the past." >&2
+            echo "       Use 'run --name <job>' to execute immediately." >&2
+            return 1
+        fi
+        if [[ $delta -lt 120 ]]; then
+            echo "Warning: Scheduled time is only ${delta}s away. launchd may not" >&2
+            echo "         have enough time to register the trigger reliably." >&2
+            echo "         Consider at least 2 minutes of lead time, or use 'run' instead." >&2
+        fi
         cat << EOF
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Month</key>
-        <integer>${month}</integer>
-        <key>Day</key>
-        <integer>${day}</integer>
-        <key>Hour</key>
-        <integer>${hour}</integer>
-        <key>Minute</key>
-        <integer>${minute}</integer>
-    </dict>
+    <key>StartInterval</key>
+    <integer>${delta}</integer>
 EOF
         return 0
     fi
@@ -1088,6 +1114,41 @@ cmd_test_notify() {
     fi
 }
 
+cmd_regen_plist() {
+    # Internal command called by runner.sh after a recurring job completes.
+    # Recalculates StartInterval delta and reloads the plist without touching
+    # lastRunAt / lastRunStatus in the job JSON.
+    if ! validate_job_name "$NAME"; then exit 1; fi
+    local job_file="$JOBS_DIR/$NAME.json"
+    if [[ ! -f "$job_file" ]]; then
+        echo "Error: Job '$NAME' not found." >&2
+        exit 1
+    fi
+
+    local enabled sched
+    enabled=$(jq -r '.enabled // true' "$job_file")
+    if [[ "$enabled" == "false" ]]; then
+        echo "Job '$NAME' is disabled — skipping plist regeneration."
+        exit 0
+    fi
+
+    sched=$(jq -r '.schedule // ""' "$job_file")
+    if ! echo "$sched" | grep -qE '^(daily|weekly) '; then
+        echo "Job '$NAME' schedule '$sched' does not need plist regeneration."
+        exit 0
+    fi
+
+    unload_job "$NAME"
+    if ! generate_plist "$NAME" "$sched"; then
+        echo "Error: Failed to regenerate plist for '$NAME'." >&2
+        exit 1
+    fi
+    load_job "$NAME"
+    local delta
+    delta=$(calc_start_interval "$sched") || delta="?"
+    echo "Plist regenerated for '$NAME' (schedule: $sched, next interval: ${delta}s)"
+}
+
 cmd_usage() {
     echo "Claude Scheduler - Manage scheduled Claude Code jobs (macOS)"
     echo ""
@@ -1136,5 +1197,6 @@ case "$COMMAND" in
     status)       cmd_status ;;
     setup-notify) cmd_setup_notify ;;
     test-notify)  cmd_test_notify ;;
+    _regen_plist) cmd_regen_plist ;;
     *)            cmd_usage ;;
 esac
