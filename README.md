@@ -352,13 +352,17 @@ The `{{message}}` placeholder is replaced with a description of which job failed
 | Skill | `~/.claude/skills/claude-scheduler/SKILL.md` |
 | Task Scheduler | `\ClaudeScheduler\` folder in Task Scheduler |
 
-## Chrome Extension Jobs (Not Currently Viable)
+## Browser Automation with Scheduled Jobs
 
-We explored scheduling jobs that use the Claude Chrome extension for browser automation (checking dashboards, reading logged-in services, etc.). The Chrome extension's MCP connection is currently unreliable for unattended use — see [this upstream issue](https://github.com/anthropics/claude-code/issues/26347).
+Want scheduled jobs that can browse the web, scrape pages, fill forms, or post to social media? Use [claude-browser-agent](https://github.com/gokuafrica/claude-browser-agent) alongside this scheduler.
 
-For a detailed account of what we tried and what we learned, see [CHROME-EXTENSION-RETROSPECTIVE.md](CHROME-EXTENSION-RETROSPECTIVE.md).
+It gives Claude Code a real browser (via Playwright MCP) with a persistent profile that keeps your login sessions across runs. Once installed, any scheduled job can use browser tools automatically — no extra config needed per job.
 
-We'll revisit this when the extension stabilizes.
+```
+Schedule a daily job to open https://news.ycombinator.com, read the top 10 stories, and save a summary to ~/reports/hn.md
+```
+
+See [CHROME-EXTENSION-RETROSPECTIVE.md](CHROME-EXTENSION-RETROSPECTIVE.md) for why we moved away from the Chrome extension approach.
 
 ## Uninstall
 

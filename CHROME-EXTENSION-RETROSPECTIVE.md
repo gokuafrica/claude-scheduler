@@ -170,17 +170,35 @@ We also added retry logic: if Chrome tools weren't detected, the runner would ki
 
 ---
 
-## What Would Need to Change
+## The Solution: claude-browser-agent
 
-For Chrome extension automation to be viable for unattended scheduling, we'd need:
+Rather than waiting for the Chrome extension to stabilize, we built [claude-browser-agent](https://github.com/gokuafrica/claude-browser-agent) — a Playwright-based alternative that sidesteps every problem listed above.
+
+It uses the [Playwright MCP server](https://github.com/anthropics/playwright-mcp) to give Claude Code direct browser control. Key differences from the Chrome extension approach:
+
+- **No service worker** — Playwright launches and manages the browser process directly, no extension lifecycle to fight.
+- **No native messaging host** — Communication goes through MCP, not Chrome's native messaging pipe.
+- **Persistent login sessions** — A dedicated browser profile (`~/.playwright-mcp-profile`) stores cookies and sessions across runs. Log in once, sessions survive reboots.
+- **Works unattended** — No flaky MCP reconnection issues. The Playwright server starts fresh each session, cleanly.
+
+Since the MCP server is registered at user scope, every Claude Code session (including ones launched by the scheduler) automatically has browser tools available. No per-job flags or pre-flight checks needed.
+
+Install it alongside this scheduler:
+```
+Clone https://github.com/gokuafrica/claude-browser-agent and install it
+```
+
+Then any scheduled job can browse, scrape, post, or interact with authenticated web services.
+
+## What Would Still Need to Change (for Chrome Extension)
+
+If you still want to use the Chrome extension approach instead, these upstream issues would need to be resolved:
 
 1. **Stable MCP reconnection**: Claude Code's CLI must be able to reconnect to the Chrome extension MCP without permanently losing tool registrations. This is the #1 blocker.
 
 2. **Service worker lifecycle management**: Chrome's Manifest V3 service worker idle timeout needs a robust keep-alive mechanism built into the extension itself, not requiring external pinging.
 
 3. **Proper error signaling**: Claude CLI should exit non-zero when Chrome extension tools fail, rather than reporting failure conversationally with exit code 0.
-
-4. **Alternative approach**: A non-extension approach using direct Chrome DevTools Protocol (CDP) or Playwright with persistent browser contexts might be more reliable than the extension-based MCP bridge.
 
 ---
 
