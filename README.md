@@ -1,10 +1,10 @@
 # Claude Scheduler
 
-Schedule Claude Code CLI to run prompts automatically. Think cron jobs for Claude.
+Schedule Claude Code to run prompts automatically. Think cron jobs for Claude.
 
-**Supported platforms:** macOS (launchd) and Windows (Task Scheduler).
+Works on macOS and Windows — managed via a Claude Code skill or directly from the terminal.
 
-## What it does
+## What It Does
 
 - Runs any Claude Code prompt on a schedule (daily, weekly, hourly, etc.)
 - Automatically enhances prompts for autonomous execution (no human needed)
@@ -15,7 +15,7 @@ Schedule Claude Code CLI to run prompts automatically. Think cron jobs for Claud
 - Lists all jobs with status, schedule, and last run info
 - Installs a Claude Code skill so you can manage jobs in natural language
 
-## Quick Start (easiest way)
+## Quick Start
 
 If you already have [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed, just point it at this repo:
 
@@ -31,39 +31,38 @@ Claude Code will clone the repo, read this README, run the installer, and set ev
 
 ## Prerequisites
 
-### macOS
-
-- macOS 10.15+
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
 - Claude Code authenticated (run `claude` once interactively)
-- `jq` installed (`brew install jq`)
 - One-time setup: run `claude --dangerously-skip-permissions` interactively to accept the prompt (required for unattended execution)
 
-### Windows
+**Additional requirements by platform:**
 
-- Windows 10/11
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
-- Claude Code authenticated (run `claude` once interactively)
-- PowerShell 5.1+ (included with Windows 10/11)
-- One-time setup: run `claude --dangerously-skip-permissions` interactively to accept the prompt (required for unattended execution)
+| | macOS | Windows |
+|---|---|---|
+| OS version | 10.15+ | 10/11 |
+| Extra dependency | `jq` (`brew install jq`) | PowerShell 5.1+ (built-in) |
 
 ## Manual Install
 
-### macOS
+<details>
+<summary><strong>macOS</strong></summary>
 
 ```bash
 git clone https://github.com/gokuafrica/claude-scheduler.git
 cd claude-scheduler
 bash install.sh
 ```
+</details>
 
-### Windows
+<details>
+<summary><strong>Windows</strong></summary>
 
 ```powershell
 git clone https://github.com/gokuafrica/claude-scheduler.git
 cd claude-scheduler
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
+</details>
 
 This copies the scheduler scripts to `~/.claude/scheduler/` and installs the Claude Code skill to `~/.claude/skills/claude-scheduler/`. Existing jobs and logs are preserved on reinstall.
 
@@ -85,7 +84,10 @@ Once installed, just talk to Claude:
 
 The `/claude-scheduler` skill translates your intent into the right commands and automatically uses the correct platform syntax.
 
-### From the terminal (macOS)
+### From the Terminal
+
+<details>
+<summary><strong>macOS (bash)</strong></summary>
 
 ```bash
 # Create a job
@@ -134,13 +136,15 @@ bash ~/.claude/scheduler/claude-scheduler.sh delete --name "daily-summary" --kee
 bash ~/.claude/scheduler/claude-scheduler.sh purge-logs --days 7
 ```
 
-**Tip**: Add an alias to your `~/.zshrc` or `~/.bashrc` for convenience:
+**Tip**: Add an alias to your `~/.zshrc` or `~/.bashrc`:
 ```bash
 alias cs='bash ~/.claude/scheduler/claude-scheduler.sh'
 # Then: cs list, cs run --name "daily-summary", etc.
 ```
+</details>
 
-### From PowerShell (Windows)
+<details>
+<summary><strong>Windows (PowerShell)</strong></summary>
 
 ```powershell
 # Create a job
@@ -189,11 +193,12 @@ alias cs='bash ~/.claude/scheduler/claude-scheduler.sh'
 & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" purge-logs -Days 7
 ```
 
-**Tip**: Add an alias to your PowerShell `$PROFILE` for convenience:
+**Tip**: Add an alias to your PowerShell `$PROFILE`:
 ```powershell
 Set-Alias -Name cs -Value "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1"
 # Then: cs list, cs run -Name "daily-summary", etc.
 ```
+</details>
 
 ## Schedule Formats
 
@@ -210,46 +215,29 @@ Set-Alias -Name cs -Value "$env:USERPROFILE\.claude\scheduler\claude-scheduler.p
 
 ## Job Options
 
-### macOS (`--kebab-case`)
+All options are available on both platforms. macOS uses `--kebab-case`, Windows uses `-PascalCase`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--name` | (required) | Job name (letters, numbers, hyphens, underscores) |
-| `--prompt` | (required) | The prompt Claude will execute |
-| `--schedule` | (required) | When to run (see formats above) |
-| `--description` | | Human-readable description |
-| `--model` | `sonnet` | Claude model: `sonnet`, `opus`, `haiku` |
-| `--max-budget` | | Max USD per run. Only passed to Claude CLI if explicitly set |
-| `--effort` | | `low`, `medium`, or `high` |
-| `--work-dir` | `~` | Working directory (`~` = user home) |
-| `--log-retention` | `30` | Days to keep log files before auto-purge |
-| `--allowed-tools` | | Restrict to specific tools (e.g., `Read,WebFetch`) |
-| `--disallowed-tools` | | Block specific tools |
-| `--append-system-prompt` | | Extra instructions added to the system prompt |
-
-### Windows (`-PascalCase`)
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `-Name` | (required) | Job name (letters, numbers, hyphens, underscores) |
-| `-Prompt` | (required) | The prompt Claude will execute |
-| `-Schedule` | (required) | When to run (see formats above) |
-| `-Description` | | Human-readable description |
-| `-Model` | `sonnet` | Claude model: `sonnet`, `opus`, `haiku` |
-| `-MaxBudget` | | Max USD per run. Only passed to Claude CLI if explicitly set |
-| `-Effort` | | `low`, `medium`, or `high` |
-| `-WorkDir` | `~` | Working directory (`~` = user home) |
-| `-LogRetention` | `30` | Days to keep log files before auto-purge |
-| `-AllowedTools` | | Restrict to specific tools (e.g., `Read,WebFetch`) |
-| `-DisallowedTools` | | Block specific tools |
-| `-McpConfig` | | Path to MCP server config JSON |
-| `-AppendSystemPrompt` | | Extra instructions added to the system prompt |
+| `--name` / `-Name` | (required) | Job name (letters, numbers, hyphens, underscores) |
+| `--prompt` / `-Prompt` | (required) | The prompt Claude will execute |
+| `--schedule` / `-Schedule` | (required) | When to run (see formats above) |
+| `--description` / `-Description` | | Human-readable description |
+| `--model` / `-Model` | `sonnet` | Claude model: `sonnet`, `opus`, `haiku` |
+| `--max-budget` / `-MaxBudget` | | Max USD per run. Only passed to Claude CLI if explicitly set |
+| `--effort` / `-Effort` | | `low`, `medium`, or `high` |
+| `--work-dir` / `-WorkDir` | `~` | Working directory (`~` = user home) |
+| `--log-retention` / `-LogRetention` | `30` | Days to keep log files before auto-purge |
+| `--allowed-tools` / `-AllowedTools` | | Restrict to specific tools (e.g., `Read,WebFetch`) |
+| `--disallowed-tools` / `-DisallowedTools` | | Block specific tools |
+| `--append-system-prompt` / `-AppendSystemPrompt` | | Extra instructions added to the system prompt |
 
 ## Failure Notifications
 
 Get notified on your phone when a scheduled job fails.
 
-### Setup (macOS)
+<details>
+<summary><strong>macOS setup</strong></summary>
 
 ```bash
 # ntfy.sh (free push notifications — no account needed)
@@ -268,19 +256,21 @@ bash ~/.claude/scheduler/claude-scheduler.sh test-notify
 # Disable
 bash ~/.claude/scheduler/claude-scheduler.sh setup-notify --disable
 ```
+</details>
 
-### Setup (Windows)
+<details>
+<summary><strong>Windows setup</strong></summary>
 
 ```powershell
-# WhatsApp (via wacli)
-& "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" setup-notify `
-  -NotifyCommand "wacli" `
-  -NotifyArgs "send","--to","<phone>","--message","{{message}}"
-
 # ntfy.sh (free push notifications — no account needed)
 & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" setup-notify `
   -NotifyCommand "curl" `
   -NotifyArgs "-d","{{message}}","ntfy.sh/your-topic"
+
+# WhatsApp (via wacli)
+& "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" setup-notify `
+  -NotifyCommand "wacli" `
+  -NotifyArgs "send","--to","<phone>","--message","{{message}}"
 
 # Test it
 & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" test-notify
@@ -288,69 +278,35 @@ bash ~/.claude/scheduler/claude-scheduler.sh setup-notify --disable
 # Disable
 & "$env:USERPROFILE\.claude\scheduler\claude-scheduler.ps1" setup-notify -Disable
 ```
+</details>
 
 The `{{message}}` placeholder is replaced with a description of which job failed and why. Notifications are stored in `~/.claude/scheduler/notify.json`.
 
 ## How It Works
 
-### macOS
+1. **`create`** writes a job definition JSON to `~/.claude/scheduler/jobs/` and registers it with the OS scheduler (launchd on macOS, Task Scheduler on Windows).
 
-1. **`create`** writes a job definition JSON to `~/.claude/scheduler/jobs/` and generates a launchd plist at `~/Library/LaunchAgents/com.claude-scheduler.<name>.plist`, then loads it via `launchctl`.
-
-2. When the schedule triggers, launchd runs **`runner.sh`**, which:
-   - Reads the job JSON
+2. When the schedule triggers, the **runner** script (`runner.sh` / `runner.ps1`):
+   - Reads the job JSON and validates it
    - Purges logs older than the retention period
-   - Discovers the Claude CLI on PATH (handles launchd's minimal environment)
-   - Injects an "autonomous mode" system prompt via `--append-system-prompt` telling Claude it's running unattended
+   - Injects an "autonomous mode" system prompt telling Claude it's running unattended
    - Executes `claude -p` with `--dangerously-skip-permissions`, `--output-format json`, and all configured flags
    - Captures output to a timestamped log file
    - Updates the job JSON with last run time, status, and duration
 
-3. Jobs run as Launch Agents under your user account (runs when you're logged in, no admin privileges needed).
-
-### Windows
-
-1. **`create`** writes a job definition JSON to `~/.claude/scheduler/jobs/` and registers a Windows Task Scheduler entry under `\ClaudeScheduler\`.
-
-2. When the schedule triggers, Task Scheduler runs **`runner.ps1`**, which:
-   - Reads the job JSON
-   - Purges logs older than the retention period
-   - Injects an "autonomous mode" system prompt via `--append-system-prompt` telling Claude it's running unattended
-   - Executes `claude -p` with `--dangerously-skip-permissions`, `--output-format json`, and all configured flags
-   - Captures output to a timestamped log file
-   - Updates the job JSON with last run time, status, and duration
-
-3. Jobs run under your user account with Interactive logon (runs when you're logged in, no password stored).
-
-### Locked screen & sleep behavior (both platforms)
-
-- Scheduled jobs run normally when your screen is locked (locking the screen keeps your session active).
-- Jobs will **not** run while your computer is asleep, but will catch up when it wakes.
-- Jobs require you to be logged in (locking the screen is fine; logging out stops jobs).
+3. Jobs run under your user account — no admin privileges needed. They run when you're logged in (locking the screen is fine; logging out stops jobs). Jobs won't run during sleep, but catch up when the machine wakes.
 
 ## File Locations
 
-### macOS
-
-| What | Where |
-|------|-------|
-| Management CLI | `~/.claude/scheduler/claude-scheduler.sh` |
-| Runner | `~/.claude/scheduler/runner.sh` |
+| What | Location |
+|------|----------|
+| Management CLI | `~/.claude/scheduler/claude-scheduler.{sh,ps1}` |
+| Runner | `~/.claude/scheduler/runner.{sh,ps1}` |
 | Job definitions | `~/.claude/scheduler/jobs/*.json` |
 | Logs | `~/.claude/scheduler/logs/{job-name}/*.log` |
 | Skill | `~/.claude/skills/claude-scheduler/SKILL.md` |
-| launchd agents | `~/Library/LaunchAgents/com.claude-scheduler.*.plist` |
-
-### Windows
-
-| What | Where |
-|------|-------|
-| Management CLI | `~/.claude/scheduler/claude-scheduler.ps1` |
-| Runner | `~/.claude/scheduler/runner.ps1` |
-| Job definitions | `~/.claude/scheduler/jobs/*.json` |
-| Logs | `~/.claude/scheduler/logs/{job-name}/*.log` |
-| Skill | `~/.claude/skills/claude-scheduler/SKILL.md` |
-| Task Scheduler | `\ClaudeScheduler\` folder in Task Scheduler |
+| OS scheduler entries | `~/Library/LaunchAgents/com.claude-scheduler.*.plist` (macOS) |
+| | `\ClaudeScheduler\` in Task Scheduler (Windows) |
 
 ## Browser Automation with Scheduled Jobs
 
@@ -366,21 +322,23 @@ See [CHROME-EXTENSION-RETROSPECTIVE.md](CHROME-EXTENSION-RETROSPECTIVE.md) for w
 
 ## Uninstall
 
-### macOS
+<details>
+<summary><strong>macOS</strong></summary>
 
 ```bash
 bash uninstall.sh
 ```
-
 Removes launchd agents, scripts, and skill. Use `--keep-logs` or `--keep-jobs` to preserve data.
+</details>
 
-### Windows
+<details>
+<summary><strong>Windows</strong></summary>
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File uninstall.ps1
 ```
-
 Removes Task Scheduler entries, scripts, and skill. Use `-KeepLogs` or `-KeepJobs` to preserve data.
+</details>
 
 ## License
 

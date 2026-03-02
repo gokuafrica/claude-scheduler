@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Scheduler Uninstaller (macOS) - Clean removal of scheduled Claude Code jobs.
+# Claude Scheduler Uninstaller - Clean removal of scheduled Claude Code jobs.
 #
 # Removes all launchd agents, scheduler scripts, and optionally logs.
 # Preserves job JSONs as backup by default with --keep-jobs.
@@ -18,9 +18,9 @@ for arg in "$@"; do
 done
 
 echo ''
-echo '  =================================='
-echo '  Claude Scheduler - macOS Uninstaller'
-echo '  =================================='
+echo '  ================================'
+echo '  Claude Scheduler - Uninstaller'
+echo '  ================================'
 echo ''
 
 CLAUDE_DIR="$HOME/.claude"
